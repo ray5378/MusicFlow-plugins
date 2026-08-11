@@ -5,14 +5,17 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 本仓库托管以「外置 drop-in 插件」形式分发的官方插件，通过 V2 后端的**插件市场**一键安装，
 不再随后端二进制内置。
 
-> 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、歌词、封面、DLNA 投屏）
-> 仍随后端内置，开箱即用。本仓库只放需要独立分发 / 不在官方内置里的插件。
+> 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
+> 仍随后端内置，开箱即用。本仓库托管所有与 go-music-dl 相关的官方插件（源 / 歌词 / 封面），
+> 它们都改为外置分发，不再随后端内置。
 
 ## 当前托管的插件
 
 | 插件 | 类型 | 说明 |
 | --- | --- | --- |
-| [`go-music-dl`](plugins/go-music-dl) | source | 通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放与 LRC 歌词 |
+| [`go-music-dl`](plugins/go-music-dl) | source | 通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放 |
+| [`go-music-dl-lyrics`](plugins/go-music-dl-lyrics) | lyrics | 从同一台 go-music-dl 服务获取 LRC 歌词（需填写与源插件相同的服务地址） |
+| [`go-music-dl-cover`](plugins/go-music-dl-cover) | cover | 从同一台 go-music-dl 服务为缺封面歌曲补全封面（需填写与源插件相同的服务地址） |
 
 ## 在 MusicFlow V2 中安装
 

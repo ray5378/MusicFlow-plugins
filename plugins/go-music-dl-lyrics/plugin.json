@@ -1,0 +1,17 @@
+{
+  "id": "go-music-dl-lyrics",
+  "name": "go-music-dl 歌词",
+  "version": "1.0.0",
+  "type": "lyrics",
+  "description": "通过 go-music-dl 服务为在线歌曲获取 LRC 歌词。需填写与「go-music-dl 全网聚合」源插件相同的服务地址。官方外置插件(不再随后端内置)。",
+  "capabilities": ["lyricProvider"],
+  "defaultEnabled": false,
+  "minAppVersion": "1.0.0",
+  "author": "ray5378",
+  "homepage": "https://github.com/ray5378/MusicFlow-plugins",
+  "downloadUrl": "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl-lyrics/go-music-dl-lyrics.tar.gz",
+  "permissions": ["net"],
+  "configSchema": [
+    { "key": "baseUrl", "label": "服务地址", "type": "url", "required": true, "help": "填写你的 go-music-dl 服务地址(与「go-music-dl 全网聚合」源插件一致)" }
+  ]
+}

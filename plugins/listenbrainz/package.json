@@ -1,0 +1,7 @@
+{
+  "name": "musicflow-plugin-listenbrainz",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MusicFlow V2 official external plugin: ListenBrainz scrobbler"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "listenbrainz",
+  "name": "ListenBrainz 播放记录",
+  "version": "1.0.0",
+  "type": "scrobbler",
+  "description": "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品)。支持「正在播放」实时状态与正式收听记录,可指向自建实例。",
+  "capabilities": ["scrobbler"],
+  "defaultEnabled": false,
+  "minAppVersion": "1.0.0",
+  "permissions": ["net"],
+  "author": "ray5378",
+  "homepage": "https://github.com/ray5378/MusicFlow-plugins",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.0.0/listenbrainz.tar.gz",
+  "configSchema": [
+    { "key": "userToken", "label": "用户令牌", "type": "text", "required": true, "help": "在 https://listenbrainz.org/settings/ 页面获取 User token" },
+    { "key": "apiUrl", "label": "API 地址", "type": "url", "default": "https://api.listenbrainz.org", "help": "官方实例留默认即可;自建 ListenBrainz 填你的地址" },
+    { "key": "submitPlayingNow", "label": "上报「正在播放」", "type": "switch", "default": true, "help": "关闭后只在播放达到阈值时记录正式收听,不实时同步当前曲目" },
+    { "key": "minDuration", "label": "最短时长(秒)", "type": "number", "default": 30, "help": "短于该时长的曲目不记录正式收听(ListenBrainz 官方建议忽略 30 秒以下)" }
+  ]
+}

@@ -14,6 +14,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 | 插件 | 类型 | 说明 |
 | --- | --- | --- |
 | [`go-music-dl`](plugins/go-music-dl) | source（含 lyricProvider + coverProvider） | 三合一：通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置 |
+| [`listenbrainz`](plugins/listenbrainz) | scrobbler | 把播放记录上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品）。支持「正在播放」实时状态与正式收听记录，可指向自建实例。不用这类服务的话无需安装 |
 
 > 2026-08-12 起，`go-music-dl-lyrics` 与 `go-music-dl-cover` 两个独立插件已合并进
 > `go-music-dl`（单个 manifest 声明全部能力，单个 impl 实现全部方法）。如果你之前分别安装了
@@ -60,10 +61,27 @@ plugins/<id>/
 ## 发布新版本
 
 1. 更新插件 `plugin.json` 的 `version`（遵循 semver），并把 `downloadUrl` 里的 tag 改成新版本。
-2. 打包：`bash scripts/pack.sh <id>`（产物在 `dist/<id>.tar.gz`，脚本会打印建议的 Release tag）。
-3. 提交并推送源码到本仓库 `master`。
-4. 在 GitHub 建 Release，tag 用 `<id>-v<version>`，把 `dist/<id>.tar.gz` 作为资产上传。
+2. 校验契约：`node scripts/check.mjs`（**必做**，见下）。
+3. 打包：`bash scripts/pack.sh <id>`（产物在 `dist/<id>.tar.gz`，脚本会打印建议的 Release tag）。
+4. 提交并推送源码到本仓库 `master`。
+5. 在 GitHub 建 Release，tag 用 `<id>-v<version>`，把 `dist/<id>.tar.gz` 作为资产上传。
    `downloadUrl` 必须与该 tag 一致，否则市场安装会 404。
+6. 新插件还要把它的 `plugin.json` raw 地址加进 `registry.json`，否则不会出现在市场里。
+
+## 契约校验（scripts/check.mjs）
+
+```
+node scripts/check.mjs            # 全部插件
+node scripts/check.mjs <id>       # 指定插件
+```
+
+校验四件事，专门防住那些「装进 V2 才发现」的坑：
+
+1. `plugin.json` 能否通过 V2 的 `validateManifest`（字段 / 类型 / 能力 / 权限白名单）。
+2. `index.js` 是否导出 `manifest` + `impl`，且与 `plugin.json` 的 id / version / capabilities 一致。
+3. **声明的每项能力都有对应实现方法**。V2 核心「只按 `capabilities` 分发」，
+   声明缺失不会报错、只会**静默失效**——脚本还会反向提醒「有方法但没声明能力」的情况。
+4. `downloadUrl` 的 Release tag 与 `version` 是否匹配（不匹配就会在市场安装时 404）。
 
 ## 安全提示
 

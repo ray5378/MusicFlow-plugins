@@ -1,0 +1,5 @@
+# 二进制分发包,禁止 git 对行尾/CRLF 做归一化(否则 tar 包会被破坏,安装失败)
+*.tar binary
+*.tar.gz binary
+*.tgz binary
+*.zip binary

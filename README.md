@@ -22,10 +22,12 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 ## 在 MusicFlow V2 中安装
 
 1. 打开 V2 后台 → **插件** → **插件市场** 标签页。
-2. 在「注册表」里添加官方注册表地址：
+2. 官方注册表**已由 V2 首次启动时自动添加**，无需手动粘贴：
    ```
    https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/registry.json
    ```
+   如果你删掉过它（V2 不会自动加回，这是刻意设计），在「注册表」里手动添加上面的地址即可。
+   离线 / 内网部署可用环境变量 `MUSICFLOW_OFFICIAL_REGISTRY` 换成自建镜像，或置空以完全关闭自动添加。
 3. 市场列表会出现 `go-music-dl 全网聚合`，点击 **安装**。
 4. 安装后在「已安装」里填入你的 go-music-dl 服务地址（`baseUrl`）并启用即可。源 / 歌词 / 封面
    共用这一个地址，无需重复填写。
@@ -41,17 +43,27 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 plugins/<id>/
   plugin.json     # 插件清单(manifest),市场只读它来展示元数据
   index.js        # ESM: export const manifest / export const impl(自包含,只用全局 fetch)
-  package.json     # {"type":"module"},保证在任意 data/plugins 位置都以 ESM 加载
-  <id>.tar.gz      # 分发包(含上面三个文件),供 downloadUrl 下载
+  package.json    # {"type":"module"},保证在任意 data/plugins 位置都以 ESM 加载
 ```
+
+分发用的 `<id>.tar.gz` **不入库**：它由 `scripts/pack.sh` 生成到 `dist/`（已 gitignore），
+作为 GitHub Release 资产分发。这样全仓库只有一个权威副本，不会出现「仓库内 tar 比 Release
+资产旧」的版本漂移。
+
+## 分发方式
+
+| 内容 | 位置 | 原因 |
+| --- | --- | --- |
+| `registry.json`、`plugin.json` | raw.githubusercontent.com | 体积小、需要稳定不变的 URL 作为市场入口 |
+| `<id>.tar.gz` | GitHub Release 资产 | 体积大，Release CDN 无 raw 的速率限制 |
 
 ## 发布新版本
 
-1. 更新插件 `plugin.json` 的 `version`（遵循 semver）。
-2. 重新打包：`tar --force-local -czf <id>.tar.gz -C plugins/<id> index.js plugin.json package.json`
-   （Windows 上需 `--force-local`，否则 `C:\` 会被当成远程主机）。
-3. 提交并推送到本仓库 `master`。
-4. （可选）在 GitHub 打 Release，把 `*.tar.gz` 作为 Release 资产，并把 `downloadUrl` 指向 Release 资产地址。
+1. 更新插件 `plugin.json` 的 `version`（遵循 semver），并把 `downloadUrl` 里的 tag 改成新版本。
+2. 打包：`bash scripts/pack.sh <id>`（产物在 `dist/<id>.tar.gz`，脚本会打印建议的 Release tag）。
+3. 提交并推送源码到本仓库 `master`。
+4. 在 GitHub 建 Release，tag 用 `<id>-v<version>`，把 `dist/<id>.tar.gz` 作为资产上传。
+   `downloadUrl` 必须与该 tag 一致，否则市场安装会 404。
 
 ## 安全提示
 

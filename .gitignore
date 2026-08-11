@@ -1,0 +1,7 @@
+# 打包产物：tar 包由 scripts/pack.sh 生成，作为 GitHub Release 资产分发，
+# 不入库（避免仓库副本与 Release 资产版本漂移）。
+dist/
+*.tar.gz
+*.tgz
+*.tar
+*.zip

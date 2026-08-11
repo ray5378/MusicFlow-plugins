@@ -1,19 +1,22 @@
 // ============================================================================
-//  MusicFlow-V2 官方外置插件：go-music-dl 全网聚合 (source)
+//  MusicFlow-V2 官方外置插件：go-music-dl 全网聚合 (source + lyrics + cover)
 // ----------------------------------------------------------------------------
-//  本插件已从 MusicFlow-V2 后端「内置」中移出,改为通过 MusicFlow-plugins 官方
-//  插件市场分发。安装方式二选一:
-//    1) 插件管理页 → 「插件市场」→ 添加官方注册表 → 一键安装;
-//    2) 手动把本目录(含 index.js + plugin.json)复制到 <data>/plugins/go-music-dl/。
+//  三合一插件:源(搜索/推荐/歌单/流) + 歌词 + 封面,全部走同一台 go-music-dl 服务,
+//  共用同一份 baseUrl 配置。已从 MusicFlow-V2 后端「内置」移出,改为通过
+//  MusicFlow-plugins 官方插件市场分发。
+//
+//  对应 V1 时代的三个插件(go-music-dl / go-music-dl-lyrics / go-music-dl-cover)
+//  已合并为本文件:单个 manifest 声明全部能力,单个 impl 实现全部方法。核心按
+//  capability 遍历调用,与拆不拆分无关。
 //
 //  约定(与后端 discovery.ts 一致):
 //    - 必须是 ESM: export const manifest / export const impl
 //    - 只能依赖全局 fetch,绝不 import 后端内部模块(host.* 契约之外不引入耦合)
 //    - manifest.id 全局唯一;与已注册插件重名会被跳过
-//    - 仅声明的能力会被核心调用
+//    - 仅声明的能力会被核心调用(source 路径收 config,provider 路径收 host)
 //
 //  功能: 通过你在局域网部署的 go-music-dl 网页服务搜索全网音乐、获取推荐歌单、
-//        拉取歌单详情、生成流式播放地址与 LRC 歌词地址。
+//        拉取歌单详情、生成流式播放地址,并为在线歌曲提供 LRC 歌词与封面。
 // ============================================================================
 
 /** 支持的搜索平台(同时作为「搜索平台」多选选项)。 */
@@ -32,9 +35,10 @@ const PLATFORMS = [
   { value: "apple", label: "Apple Music" },
 ];
 
-/** 去掉 baseUrl 结尾的斜杠。 */
-function baseUrl(config) {
-  return String(config?.baseUrl || "").replace(/\/+$/, "");
+/** 统一取 baseUrl:source 路径直接收到 config,provider 路径收到 host.config。 */
+function baseOf(input) {
+  const cfg = input && input.config ? input.config : input;
+  return String((cfg && cfg.baseUrl) || "").replace(/\/+$/, "");
 }
 
 /** go-music-dl 的 HTML 里属性值是 HTML-escaped 的(&#34; 等),还原之。 */
@@ -142,28 +146,62 @@ function parseRecommendPlaylists(html) {
   return channels;
 }
 
+/** 由已存储的 /music/download 流地址构造 /music/download_lrc 歌词地址。 */
+function lrcUrlFromSong(song) {
+  if (!song.url || !song.url.includes("/music/download")) return null;
+  try {
+    const u = new URL(song.url);
+    if (!u.pathname.endsWith("/music/download")) return null;
+    u.pathname = u.pathname.slice(0, -"/music/download".length) + "/music/download_lrc";
+    u.searchParams.delete("stream");
+    u.searchParams.delete("range");
+    u.searchParams.delete("cover");
+    u.searchParams.delete("embed");
+    u.searchParams.set("format", "line");
+    if ((song.duration || 0) > 0 && !u.searchParams.has("duration")) {
+      u.searchParams.set("duration", String(song.duration));
+    }
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 /** 插件自描述。核心只读 manifest,绝不读具体实现。 */
 export const manifest = {
   id: "go-music-dl",
   name: "go-music-dl 全网聚合",
-  version: "1.0.0",
+  version: "1.1.0",
   type: "source",
   description:
-    "通过局域网已部署的 go-music-dl 服务搜索全网音乐,并把结果作为在线歌曲保存入库。官方外置插件(不再随后端内置)。",
-  capabilities: ["search", "recommend", "playlistSongs", "stream", "webRotation"],
+    "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。",
+  // 源系能力 + 歌词 + 封面,全部声明在同一个 manifest 里。
+  capabilities: [
+    "search",
+    "recommend",
+    "playlistSongs",
+    "stream",
+    "webRotation",
+    "lyricProvider",
+    "coverProvider",
+  ],
   platforms: PLATFORMS.map((p) => p.value),
   recommendPrefix: "gmdl://recommend/",
   defaultEnabled: false, // 外置插件默认关,用户在插件页配置 baseUrl 后手动开启
   minAppVersion: "1.0.0", // dev 构建不受限;正式版要求 App >= 1.0.0
+  permissions: ["net"],
+  author: "ray5378",
+  homepage: "https://github.com/ray5378/MusicFlow-plugins",
   downloadUrl:
     "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl/go-music-dl.tar.gz",
+  // 一份 baseUrl 同时服务 源 / 歌词 / 封面(不再各填一次)。
   configSchema: [
     {
       key: "baseUrl",
       label: "服务地址",
       type: "url",
       required: true,
-      help: "填写你在局域网部署的 go-music-dl 网页服务地址",
+      help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)",
     },
     { key: "sources", label: "搜索平台", type: "multiselect", options: PLATFORMS },
     {
@@ -184,10 +222,10 @@ export const manifest = {
   ],
 };
 
-/** 插件实现:OnlineProvider 形态,核心按 capability 调用对应方法。 */
+/** 插件实现:source + lyricProvider + coverProvider 形态,核心按 capability 调用对应方法。 */
 export const impl = {
   async test(config) {
-    const url = baseUrl(config);
+    const url = baseOf(config);
     if (!url) return { success: false, message: "未配置 go-music-dl 地址" };
     try {
       const res = await fetch(`${url}/music/?type=song&sources=netease`, {
@@ -206,7 +244,7 @@ export const impl = {
   },
 
   async search(config, params) {
-    const url = `${baseUrl(config)}/music/search`;
+    const url = `${baseOf(config)}/music/search`;
     const qs = new URLSearchParams({ q: params.query, type: "song" });
     for (const s of params.sources || []) qs.append("sources", s);
     const res = await fetch(`${url}?${qs.toString()}`, { signal: AbortSignal.timeout(15000) });
@@ -216,7 +254,7 @@ export const impl = {
   },
 
   async recommend(config) {
-    const url = `${baseUrl(config)}/music/recommend`;
+    const url = `${baseOf(config)}/music/recommend`;
     const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`go-music-dl 获取推荐歌单失败: HTTP ${res.status}`);
     const html = await res.text();
@@ -224,7 +262,7 @@ export const impl = {
   },
 
   async playlistSongs(config, source, id) {
-    const root = baseUrl(config);
+    const root = baseOf(config);
     // go-music-dl 服务端分页渲染 song-card(page_size 上限 500)。
     const totalRe = /data-total-count="(\d+)"/;
     let page = 1;
@@ -259,29 +297,62 @@ export const impl = {
     if (song.cover) qs.set("cover", song.cover);
     if (song.extra) qs.set("extra", JSON.stringify(song.extra));
     if (range) qs.set("range", range);
-    return `${baseUrl(config)}/music/download?${qs.toString()}`;
+    return `${baseOf(config)}/music/download?${qs.toString()}`;
   },
 
-  // 由已存储的 /music/download 流地址构造 /music/download_lrc 歌词地址。
-  // 保留 id/source/name/artist/album/extra,去掉流式专用参数,加 duration +
-  // format=line 让 go-music-dl 返回行式 LRC(逐字/卡拉OK 歌词折叠成普通带时行)。
-  lyricUrl(_config, song) {
-    if (!song.url || !song.url.includes("/music/download")) return null;
+  // ---- lyricProvider:由已存储的 /music/download 流地址构造 /music/download_lrc 歌词地址 ----
+  async searchLyrics(host, song) {
+    const base = baseOf(host);
+    if (!base) return null;
+    const lrcUrl = lrcUrlFromSong(song);
+    if (!lrcUrl) return null;
     try {
-      const u = new URL(song.url);
-      if (!u.pathname.endsWith("/music/download")) return null;
-      u.pathname = u.pathname.slice(0, -"/music/download".length) + "/music/download_lrc";
-      u.searchParams.delete("stream");
-      u.searchParams.delete("range");
-      u.searchParams.delete("cover");
-      u.searchParams.delete("embed");
-      u.searchParams.set("format", "line");
-      if ((song.duration || 0) > 0 && !u.searchParams.has("duration")) {
-        u.searchParams.set("duration", String(song.duration));
-      }
-      return u.toString();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(lrcUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (!text || text.startsWith("Lyric not found")) return null;
+      return { lrc: text };
     } catch {
       return null;
     }
+  },
+
+  // ---- coverProvider:go-music-dl web 歌曲复用其 cover 参数,否则按 标题+艺人 搜索取首图 ----
+  async searchCover(host, song) {
+    const base = baseOf(host);
+    if (!base) return null;
+
+    // 1) go-music-dl web 歌曲 → 复用其 cover 参数。
+    if (song.url && song.url.includes("/music/download")) {
+      try {
+        const u = new URL(song.url);
+        const c = u.searchParams.get("cover");
+        if (c) return { url: c };
+      } catch {
+        /* fall through to search */
+      }
+    }
+
+    // 2) 按 标题 + 艺人 搜索 go-music-dl,取第一张封面。
+    if (!song.title) return null;
+    const q = `${song.artist ? song.artist + " " : ""}${song.title}`;
+    const qs = new URLSearchParams({ q, type: "song", sources: "netease,qq,kugou,kuwo" });
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(`${base}/music/search?${qs.toString()}`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      const html = await res.text();
+      for (const card of parseSongCards(html)) {
+        if (card.cover) return { url: card.cover };
+      }
+    } catch {
+      /* ignore — 另一 provider 可能提供封面 */
+    }
+    return null;
   },
 };

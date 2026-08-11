@@ -156,7 +156,7 @@ export const manifest = {
   defaultEnabled: false, // 外置插件默认关,用户在插件页配置 baseUrl 后手动开启
   minAppVersion: "1.0.0", // dev 构建不受限;正式版要求 App >= 1.0.0
   downloadUrl:
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/main/plugins/go-music-dl/go-music-dl.tar.gz",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl/go-music-dl.tar.gz",
   configSchema: [
     {
       key: "baseUrl",

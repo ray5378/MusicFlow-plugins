@@ -19,7 +19,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 1. 打开 V2 后台 → **插件** → **插件市场** 标签页。
 2. 在「注册表」里添加官方注册表地址：
    ```
-   https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/main/registry.json
+   https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/registry.json
    ```
 3. 市场列表会出现 `go-music-dl 全网聚合`，点击 **安装**。
 4. 安装后在「已安装」里填入你的 go-music-dl 服务地址（`baseUrl`）并启用即可。

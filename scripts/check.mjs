@@ -2,17 +2,23 @@
 //
 // 校验三层：
 //   1. plugin.json 是否能通过 V2 的 validateManifest(字段/类型/能力/权限白名单)
-//   2. index.js 是否导出 manifest + impl，且两边 id/version 一致
+//   2. index.js 是否定义 globalThis.__mfPlugin(沙箱契约),且 manifest 与 plugin.json
+//      id/version/capabilities 一致;create(dummyHost) 能否返回 impl
 //   3. manifest 声明的每项能力，impl 是否真有对应方法
 //      —— 这一层最关键：V2 核心「只按 capabilities 分发」，声明缺失就永不被调用，
 //         而这不会报错，只会静默失效(合并三插件前踩过的坑)。
 //   4. downloadUrl 的 tag 是否与 version 一致(指错 tag 会在市场安装时 404)
 //
 // 用法：node scripts/check.mjs [插件id...]   (不传则校验全部)
+//
+// 沙箱契约说明：插件不再用 ESM export,而是在 QuickJS 沙箱里定义
+// globalThis.__mfPlugin = { manifest, create(host) }。本脚本用 node:vm 模拟
+// 沙箱环境(无 Node 能力,仅标准 JS + URL/URLSearchParams 兼容层),create(host)
+// 用 dummy host 真实调用,校验 impl 方法存在性。
 
 import fs from "fs";
 import path from "path";
-import { pathToFileURL } from "url";
+import vm from "node:vm";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 
@@ -100,17 +106,35 @@ async function checkOne(id) {
     warn(id, "downloadUrl 未指向 Release 资产(raw 有速率限制)");
   }
 
-  // 3) index.js 导出
-  let mod;
+  // 3) index.js:在 node:vm 沙箱里执行(模拟 QuickJS 环境),读 __mfPlugin,调 create 拿 impl
+  let manifest, impl;
   try {
-    mod = await import(pathToFileURL(path.join(dir, "index.js")).href);
+    const code = fs.readFileSync(path.join(dir, "index.js"), "utf8");
+    const ctx = {
+      console, JSON, Math, Date, Promise, Symbol, RegExp, Map, Set, Error, TypeError,
+      String, Number, Boolean, Array, Object, parseInt, parseFloat, isFinite, isNaN,
+      encodeURIComponent, decodeURIComponent, URLSearchParams, URL,
+    };
+    ctx.globalThis = ctx;
+    vm.runInNewContext(code, ctx, { filename: `${id}/index.js` });
+    const plugin = ctx.__mfPlugin;
+    if (!plugin || typeof plugin !== "object") {
+      return fail(id, "index.js 未定义 globalThis.__mfPlugin(沙箱契约)");
+    }
+    manifest = plugin.manifest;
+    const dummyHost = {
+      config: {}, version: "1.3.0",
+      http: async () => ({ ok: true, status: 200, headers: {}, body: "" }),
+      storage: { get: async () => null, set: async () => {}, delete: async () => {}, keys: async () => [] },
+      log: () => {}, comm: { send: () => {}, broadcast: () => {}, on: () => {} },
+    };
+    if (typeof plugin.create !== "function") return fail(id, "index.js 的 __mfPlugin 缺少 create(host)");
+    impl = plugin.create(dummyHost);
+    if (!impl || typeof impl !== "object") return fail(id, "create(host) 未返回 impl 对象");
   } catch (e) {
-    return fail(id, `index.js 无法加载: ${e.message}`);
+    return fail(id, `index.js 无法在沙箱中加载: ${e.message}`);
   }
-  const manifest = mod.manifest || mod.default?.manifest;
-  const impl = mod.impl || mod.default?.impl;
-  if (!manifest) return fail(id, "index.js 未导出 manifest");
-  if (!impl) return fail(id, "index.js 未导出 impl");
+  if (!manifest) return fail(id, "index.js 的 __mfPlugin 缺少 manifest");
 
   if (manifest.id !== pj.id) fail(id, `index.js 的 manifest.id(${manifest.id}) 与 plugin.json(${pj.id}) 不一致`);
   if (manifest.version !== pj.version) {

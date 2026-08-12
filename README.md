@@ -5,6 +5,12 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 本仓库托管以「外置 drop-in 插件」形式分发的官方插件，通过 V2 后端的**插件市场**一键安装，
 不再随后端二进制内置。
 
+> **先决条件**：需要先部署 [MusicFlow-V2](https://github.com/ray5378/MusicFlow-V2)（≥ 1.3.0，
+> 沙箱运行时；推荐用最新版）。部署方式（docker compose / HA 加载项 / 裸跑）、版本配套表、
+> 环境变量与 HA 生态见**主项目 README**：
+> [`MusicFlow-V2/README.md`](https://github.com/ray5378/MusicFlow-V2/blob/master/README.md)。
+> 本仓库的插件通过 V2「插件」页的市场一键安装，**不需要手动下载/解压**。
+
 > 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
 > 仍随后端内置，开箱即用。与 go-music-dl 相关的官方能力（源 / 歌词 / 封面）全部合并为
 > **单个**外置插件 `go-music-dl`，不再随后端内置，也不再拆成三个插件。

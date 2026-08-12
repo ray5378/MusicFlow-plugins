@@ -23,12 +23,13 @@ import vm from "node:vm";
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 
 // 与 MusicFlow-V2 backend/src/plugins/discovery.ts 的白名单保持一致。
-const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cover", "renderer", "scrobbler"];
+const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cover", "renderer", "scrobbler", "artist"];
 const VALID_CAPS = [
   "search", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
   "playlistSync", "autoMatch",
   "lyricProvider", "coverProvider", "renderer", "scrobbler",
+  "artistInfo",
 ];
 // 与 backend/src/plugins/host.ts 的 KNOWN_PERMISSIONS 保持一致。
 const KNOWN_PERMISSIONS = [

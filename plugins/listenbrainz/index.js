@@ -13,7 +13,7 @@
 export const manifest = {
   id: "listenbrainz",
   name: "ListenBrainz 播放记录",
-  version: "1.0.0",
+  version: "1.0.1",
   type: "scrobbler",
   description:
     "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品)。支持「正在播放」实时状态与正式收听记录,可指向自建实例。",

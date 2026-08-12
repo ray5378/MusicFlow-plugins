@@ -171,7 +171,7 @@ function lrcUrlFromSong(song) {
 export const manifest = {
   id: "go-music-dl",
   name: "go-music-dl 全网聚合",
-  version: "1.1.0",
+  version: "1.1.1",
   type: "source",
   description:
     "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。",

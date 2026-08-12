@@ -1,7 +1,7 @@
 {
   "id": "go-music-dl",
   "name": "go-music-dl 全网聚合",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "source",
   "description": "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。",
   "capabilities": ["search", "recommend", "playlistSongs", "stream", "webRotation", "lyricProvider", "coverProvider"],
@@ -12,7 +12,8 @@
   "permissions": ["net"],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.1.0/go-music-dl.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.1.1/go-music-dl.tar.gz",
+  "documentation": "### 功能介绍\n全网音乐源聚合插件（go-music-dl 三合一）：在线搜索、每日推荐歌单、远程歌单拉取、音频流播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面三项能力合并为单个插件，共用一份服务地址配置。\n\n### 处理逻辑\n1. 核心按能力遍历启用插件：搜索走 `search`、每日推荐走 `recommend`、远程歌单走 `playlistSongs`、播放走 `stream`（`streamUrl` 构造可播地址）、歌词走 `lyricProvider`、封面走 `coverProvider`；\n2. 所有能力基于 `host.config` 里的 baseUrl 指向局域网部署的 go-music-dl 服务，由该服务完成各平台（QQ / 网易 / 酷狗 / 咪咕等）的聚合抓取与解密；\n3. 在线歌曲的过期清理（`webRotation` 能力）由核心定时器调度，按保留天数回收不再被引用的 web 歌曲与封面。\n\n### 配置\n- `baseUrl`（必填）：go-music-dl 网页服务地址，如 `http://192.168.1.10:18080`；\n- `sources`：搜索平台多选（默认全部）；\n- `webSongsMode` / `webSongsRetentionDays`：web 歌曲保留策略与清理天数；\n- 启用后可在插件页「测试连接」验证服务可达。",
   "configSchema": [
     { "key": "baseUrl", "label": "服务地址", "type": "url", "required": true, "help": "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
     { "key": "sources", "label": "搜索平台", "type": "multiselect", "options": [

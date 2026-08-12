@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.1",
+    version: "1.2.2",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -46,7 +46,7 @@ globalThis.__mfPlugin = {
     permissions: ["net"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.0/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.2/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "sources", label: "搜索平台", type: "multiselect", options: [
@@ -275,15 +275,56 @@ globalThis.__mfPlugin = {
       async searchLyrics(song) {
         const base = baseOf(host);
         if (!base) return null;
-        const lrcUrl = lrcUrlFromSong(song);
-        if (!lrcUrl) return null;
-        try {
-          const text = await httpText(lrcUrl, 8000);
+        // 拉取并校验 LRC:404/"Lyric not found" 或纯音乐/无歌词占位均视为无词。
+        const tryFetch = async (u) => {
+          const text = await httpText(u, 8000);
           if (!text || text.startsWith("Lyric not found")) return null;
-          return { lrc: text };
-        } catch {
-          return null;
+          if (/纯音乐|无歌词|暂无歌词/.test(text)) return null;
+          return text;
+        };
+        // 1) 原曲精确 id:由 song.url 反推 download_lrc。
+        const lrcUrl = lrcUrlFromSong(song);
+        if (lrcUrl) {
+          try { const t = await tryFetch(lrcUrl); if (t) return { lrc: t }; } catch { /* 走回退 */ }
         }
+        // 2) 回退:按 歌名+歌手 搜索,歌名精确匹配的候选逐首试词。
+        //    go-music-dl 搜索结果里常有"云版本"id 无词,而正式版/官方版 id 有词;
+        //    歌手名常带乱码合作者(如 "周杰伦.、Asasblue"),取第一段清洗后搜索,
+        //    仍找不到再退 title-only。
+        if (!song.title) return null;
+        const norm = (s) => String(s || "").toLowerCase()
+          .replace(/[（(].*?[)）]/g, "").replace(/[\s·\-:_~&,，.。!！?？]+/g, "").trim();
+        const want = norm(song.title);
+        const cleanArtist = String(song.artist || "").split(/[、。，,&/()（）\s-]+/)[0] || song.artist || "";
+        const queries = [];
+        queries.push((cleanArtist ? cleanArtist + " " : "") + song.title);
+        if (cleanArtist !== (song.artist || "")) queries.push((song.artist ? song.artist + " " : "") + song.title);
+        if (!queries.includes(song.title)) queries.push(song.title);
+        const groups = song.source
+          ? [[song.source], ["netease", "qq", "kugou", "kuwo"]]
+          : [["netease", "qq", "kugou", "kuwo"]];
+        for (const srcs of groups) {
+          for (const query of queries) {
+            try {
+              const html = await httpText(base + "/music/search?" + new URLSearchParams({ q: query, type: "song", sources: srcs.join(",") }).toString(), 15000);
+              const sameSource = [];
+              const otherSource = [];
+              for (const c of parseSongCards(html)) {
+                if (norm(c.name) !== want) continue;
+                const entry = { id: c.id, source: c.source, name: c.name || "Unknown", artist: c.artist || "Unknown" };
+                (srcs.length === 1 && c.source === song.source ? sameSource : otherSource).push(entry);
+              }
+              const cands = srcs.length > 1 ? sameSource.concat(otherSource) : sameSource;
+              for (const cand of cands.slice(0, 5)) {
+                try {
+                  const t = await tryFetch(base + "/music/download_lrc?" + new URLSearchParams({ ...cand, format: "line" }).toString());
+                  if (t) return { lrc: t };
+                } catch { /* 试下一首 */ }
+              }
+            } catch { /* 该查询失败,试下一个 */ }
+          }
+        }
+        return null;
       },
 
       // ---- coverProvider ----

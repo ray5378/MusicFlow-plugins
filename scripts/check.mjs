@@ -33,6 +33,7 @@ const VALID_CAPS = [
 // 与 backend/src/plugins/host.ts 的 KNOWN_PERMISSIONS 保持一致。
 const KNOWN_PERMISSIONS = [
   "log", "storage", "net", "command", "fs", "fs:music", "fs:external",
+  "websocket", "jsenv",
   "songs:read", "songs:write", "playlists:read", "playlists:write", "inter-plugin",
 ];
 

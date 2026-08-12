@@ -49,6 +49,13 @@ const CAP_METHODS = {
   renderer: ["discover"],
   autoMatch: ["search"],
   scrobbler: { anyOf: ["onPlay", "onScrobble"] },
+  // 与 V2 backend/src/plugins/sandbox.ts 的 CAP_METHODS 保持同步
+  playlistImport: ["canHandle", "fetchPlaylist"],
+  playlistFile: ["canHandleFile", "parseFile"],
+  dailyPlaylist: ["runDailyJob"],
+  localPlaylist: ["runDailyJob"],
+  playlistSync: ["runSyncJob"],
+  // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
 };
 
 const errors = [];

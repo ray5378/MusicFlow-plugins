@@ -1,7 +1,9 @@
-# 打包产物：tar 包由 scripts/pack.sh 生成，作为 GitHub Release 资产分发，
-# 不入库（避免仓库副本与 Release 资产版本漂移）。
-dist/
+# 打包产物：tar 包由 scripts/pack.sh 生成。
+# dist/*.tar.gz 入库分发（GitHub/Gitee 双端 raw 均可直下，国内回退可靠）；
+# 仓库内的 tar 是权威副本，不再依赖 Release 附件（Gitee 附件 API 已废弃）。
+dist/*
 *.tar.gz
 *.tgz
 *.tar
 *.zip
+!dist/*.tar.gz

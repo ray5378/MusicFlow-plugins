@@ -55,25 +55,26 @@ plugins/<id>/
   package.json    # {"type":"module"},兼容性保留(沙箱加载实际不读它)
 ```
 
-分发用的 `<id>.tar.gz` **不入库**：它由 `scripts/pack.sh` 生成到 `dist/`（已 gitignore），
-作为 GitHub Release 资产分发。这样全仓库只有一个权威副本，不会出现「仓库内 tar 比 Release
-资产旧」的版本漂移。
+分发用的 `<id>.tar.gz` **入库**（`dist/`，已由 `.gitignore` 放行）：它是**唯一权威副本**，
+GitHub / Gitee 双端 raw 均可直接下载，避免「Release 附件在 Gitee 不可用 / 仓库内 tar 与
+Release 资产漂移」的坑（Gitee 的 Release 附件 API 已废弃，无法自动传附件）。
 
 ## 分发方式
 
 | 内容 | 位置 | 原因 |
 | --- | --- | --- |
-| `registry.json`、`plugin.json` | raw.githubusercontent.com | 体积小、需要稳定不变的 URL 作为市场入口 |
-| `<id>.tar.gz` | GitHub Release 资产 | 体积大，Release CDN 无 raw 的速率限制 |
+| `registry.json`、`plugin.json` | raw.githubusercontent.com（raw 回退 gitee.com/.../raw/） | 体积小、需要稳定不变的 URL 作为市场入口 |
+| `<id>.tar.gz` | **仓库 `dist/`（入库）**，downloadUrl 指向 raw | 国内网络下 GitHub raw 失败可自动回退 Gitee raw，双端直下；Gitee Release 附件 API 已废弃，不依赖附件 |
 
 ## 发布新版本
 
-1. 更新插件 `plugin.json` 的 `version`（遵循 semver），并把 `downloadUrl` 里的 tag 改成新版本。
+1. 更新插件 `plugin.json` 的 `version`（遵循 semver）；`downloadUrl` 保持
+   `https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/dist/<id>.tar.gz` 不变
+   （raw 地址不随版本变化，避免手工改 tag 出错）。
 2. 校验契约：`node scripts/check.mjs`（**必做**，见下）。
-3. 打包：`bash scripts/pack.sh <id>`（产物在 `dist/<id>.tar.gz`，脚本会打印建议的 Release tag）。
-4. 提交并推送源码到本仓库 `master`。
-5. 在 GitHub 建 Release，tag 用 `<id>-v<version>`，把 `dist/<id>.tar.gz` 作为资产上传。
-   `downloadUrl` 必须与该 tag 一致，否则市场安装会 404。
+3. 打包：`bash scripts/pack.sh <id>`（产物在 `dist/<id>.tar.gz`，**必须提交入库**——这是权威副本）。
+4. 提交并推送源码到本仓库 `master`（GitHub + Gitee 镜像同步）。
+5. 如需 Release 可照旧创建（tag `<id>-v<version>`），但**不再依赖附件**：raw 分发已覆盖安装链路。
 6. 新插件还要把它的 `plugin.json` raw 地址加进 `registry.json`，否则不会出现在市场里。
 
 ## 契约校验（scripts/check.mjs）

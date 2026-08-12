@@ -14,7 +14,7 @@
   ],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.1.0/listenbrainz.tar.gz",
+  "downloadUrl": "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/dist/listenbrainz.tar.gz",
   "documentation": "### 功能介绍\n把 MusicFlow 的播放事件上报到 ListenBrainz：开始播放上报「正在播放」（playing_now），播放达标上报正式收听记录（scrobble），计入听歌统计；支持指向自建实例。\n\n### 处理逻辑\n1. 核心在播放开始时按 `scrobbler` 能力调用本插件 `onPlay`，在播放完成（达到阈值）时调用 `onScrobble`；\n2. `onPlay` 发送 `listen_type=playing_now`（按协议不能携带 `listened_at`）；`onScrobble` 发送 `listen_type=single`（携带 `listened_at` Unix 秒）；\n3. 请求头 `Authorization: Token <userToken>`，失败（401/429 等）抛可读错误并计入插件健康面板；\n4. 短于 `minDuration`（默认 30 秒）的播放跳过正式上报；缺歌手或标题的曲目静默跳过。\n\n### 沙箱说明\n运行在 QuickJS 虚拟机内:网络经 `host.http`(自带超时),配置经 `host.config` 实时读取;`permissions: [net]` 声明网络权限。\n\n### 配置\n- `userToken`（必填）：ListenBrainz 个人访问令牌（官网 Settings 页生成）；\n- `apiUrl`：官方实例留默认；自建 ListenBrainz 填你的地址；\n- `submitPlayingNow`：是否上报「正在播放」实时状态；\n- `minDuration`：正式记录的最短播放时长（秒）。",
   "configSchema": [
     {

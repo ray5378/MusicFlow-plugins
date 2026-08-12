@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
     permissions: ["net"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.1.0/listenbrainz.tar.gz",
+    downloadUrl: "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/dist/listenbrainz.tar.gz",
     configSchema: [
       { key: "userToken", label: "用户令牌", type: "text", required: true, help: "在 https://listenbrainz.org/settings/ 页面获取 User token" },
       { key: "apiUrl", label: "API 地址", type: "url", default: "https://api.listenbrainz.org", help: "官方实例留默认即可;自建 ListenBrainz 填你的地址" },

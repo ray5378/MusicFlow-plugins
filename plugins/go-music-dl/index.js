@@ -46,7 +46,7 @@ globalThis.__mfPlugin = {
     permissions: ["net"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.2/go-music-dl.tar.gz",
+    downloadUrl: "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/dist/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "sources", label: "搜索平台", type: "multiselect", options: [

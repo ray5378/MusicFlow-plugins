@@ -2,6 +2,7 @@
   "name": "MusicFlow 官方插件市场",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
   "plugins": [
+    "https://gitee.com/ray5378/music-flow-plugins/raw/master/plugins/go-music-dl/plugin.json",
     "https://gitee.com/ray5378/music-flow-plugins/raw/master/plugins/listenbrainz/plugin.json"
   ]
 }

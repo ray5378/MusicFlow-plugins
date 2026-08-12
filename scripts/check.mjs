@@ -152,6 +152,16 @@ async function checkOne(id) {
   const capsB = [...(pj.capabilities || [])].sort().join(",");
   if (capsA !== capsB) fail(id, `两处 capabilities 不一致:\n    index.js:    ${capsA}\n    plugin.json: ${capsB}`);
 
+  // 4) 源插件平台类字段双处一致性(核心动态读 platformLabels/sourcePreference/recommendPrefix,
+  //    两处不一致会导致「配置了但核心读到旧的」)
+  for (const field of ["platforms", "platformLabels", "sourcePreference", "recommendPrefix"]) {
+    const a = manifest[field];
+    const b = pj[field];
+    const na = JSON.stringify(a ?? null);
+    const nb = JSON.stringify(b ?? null);
+    if (na !== nb) fail(id, `两处 ${field} 不一致:\n    index.js:    ${na}\n    plugin.json: ${nb}`);
+  }
+
   // 4) 每项能力都要有对应实现
   for (const cap of manifest.capabilities || []) {
     const need = CAP_METHODS[cap];

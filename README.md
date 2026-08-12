@@ -19,7 +19,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| [`go-music-dl`](plugins/go-music-dl) | 1.2.0 | source（含 lyricProvider + coverProvider） | 三合一：通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置 |
+| [`go-music-dl`](plugins/go-music-dl) | 1.2.1 | source（含 lyricProvider + coverProvider） | 三合一：通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置 |
 | [`listenbrainz`](plugins/listenbrainz) | 1.1.0 | scrobbler | 把播放记录上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品）。支持「正在播放」实时状态与正式收听记录，可指向自建实例。不用这类服务的话无需安装 |
 
 > 两个插件均运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。

@@ -12,21 +12,21 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 > 本仓库的插件通过 V2「插件」页的市场一键安装，**不需要手动下载/解压**。
 
 > 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
-> 仍随后端内置，开箱即用。与 go-music-dl 相关的官方能力（源 / 歌词 / 封面）全部合并为
-> **单个**外置插件 `go-music-dl`，不再随后端内置，也不再拆成三个插件。
+> 仍随后端内置，开箱即用。**go-music-dl 三合一（源 / 歌词 / 封面）自 V2 1.3.0 起改回内置**——
+> 不再随后端外置分发，也不再出现在本市场，配置方式不变（「已安装」里填 `baseUrl` 并启用）。
 
 ## 当前托管的插件
 
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| [`go-music-dl`](plugins/go-music-dl) | 1.2.1 | source（含 lyricProvider + coverProvider） | 三合一：通过局域网已部署的 [go-music-dl](https://github.com/gogodjzhu/go-music-dl) 服务搜索全网音乐、获取推荐歌单、流式播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置 |
 | [`listenbrainz`](plugins/listenbrainz) | 1.1.0 | scrobbler | 把播放记录上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品）。支持「正在播放」实时状态与正式收听记录，可指向自建实例。不用这类服务的话无需安装 |
 
-> 两个插件均运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
+> 插件运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
 
-> 2026-08-12 起，`go-music-dl-lyrics` 与 `go-music-dl-cover` 两个独立插件已合并进
-> `go-music-dl`（单个 manifest 声明全部能力，单个 impl 实现全部方法）。如果你之前分别安装了
-> 这三个插件，建议卸载 `go-music-dl-lyrics` / `go-music-dl-cover`，只保留 `go-music-dl` 即可。
+> 历史：go-music-dl 曾作为外置插件（1.2.x）分发自本仓库；自 V2 1.3.0 起合并为内置
+> source 插件（`goMusicDlBuiltin.ts`，capabilities 含 lyricProvider/coverProvider），
+> 随镜像发行。若你的环境里残留外置版本的 `data/plugins/go-music-dl` 目录，可删除（内置
+> 插件优先注册，同名外置会被自动跳过）。
 
 ## 在 MusicFlow V2 中安装
 
@@ -37,9 +37,8 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
    ```
    如果你删掉过它（V2 不会自动加回，这是刻意设计），在「注册表」里手动添加上面的地址即可。
    离线 / 内网部署可用环境变量 `MUSICFLOW_OFFICIAL_REGISTRY` 换成自建镜像，或置空以完全关闭自动添加。
-3. 市场列表会出现 `go-music-dl 全网聚合`，点击 **安装**。
-4. 安装后在「已安装」里填入你的 go-music-dl 服务地址（`baseUrl`）并启用即可。源 / 歌词 / 封面
-   共用这一个地址，无需重复填写。
+3. 市场列出的是本仓库托管的插件（当前为 `listenbrainz`）。`go-music-dl` 已内置，
+   直接在「已安装」标签页里填服务地址（`baseUrl`）并启用即可，无需安装。
 
 > 安装走的是 V2 的 `installPlugin`：下载 `plugin.json` 里的 `downloadUrl` 压缩包 → 解压到
 > `data/plugins/<id>/` → 自动发现、免重启生效。

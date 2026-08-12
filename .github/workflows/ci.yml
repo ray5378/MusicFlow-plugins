@@ -1,0 +1,27 @@
+name: plugin-spec
+
+# 每次 push / PR 自动校验插件是否符合 MusicFlow-V2 插件开发规范:
+#   node scripts/check.mjs —— validateManifest 白名单 / __mfPlugin 沙箱契约 /
+#   index.js 与 plugin.json 一致 / 每项能力有对应 impl 方法 / downloadUrl tag 与版本匹配。
+# 零依赖(纯 Node 内置模块),秒级完成。发布前必须通过(见 README「发布新版本」)。
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+
+concurrency:
+  group: plugin-spec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 插件契约校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 校验全部插件(scripts/check.mjs)
+        run: node scripts/check.mjs

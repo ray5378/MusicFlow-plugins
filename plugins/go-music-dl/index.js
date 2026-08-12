@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.0",
+    version: "1.2.1",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -35,6 +35,12 @@ globalThis.__mfPlugin = {
       "soda", "fivesing", "jamendo", "joox", "bilibili", "apple",
     ],
     recommendPrefix: "gmdl://recommend/",
+    platformLabels: {
+      netease: "网易云", qq: "QQ 音乐", kugou: "酷狗", kuwo: "酷我",
+      migu: "咪咕", qianqian: "千千", soda: "汽水", fivesing: "5sing",
+      jamendo: "Jamendo", joox: "JOOX", bilibili: "Bilibili", apple: "Apple Music"
+    },
+    sourcePreference: ["netease", "kuwo", "kugou", "qq"],
     defaultEnabled: false,
     minAppVersion: "1.3.0", // 沙箱运行时自 v1.3.0 起
     permissions: ["net"],

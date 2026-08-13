@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.3",
+    version: "1.2.4",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -68,6 +68,7 @@ globalThis.__mfPlugin = {
         { label: "定期清理", value: "rotate" },
       ] },
       { key: "webSongsRetentionDays", label: "保留天数", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
+      { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
     ],
   },
 
@@ -239,7 +240,16 @@ globalThis.__mfPlugin = {
 
       async recommend(config) {
         const html = await httpText(baseOf(config) + "/music/recommend", 20000);
-        return { channels: parseRecommendPlaylists(html) };
+        const channels = parseRecommendPlaylists(html);
+        // 每平台歌单数由插件自身配置 homeCount 控制(默认 6,取值 1~50)。
+        // 单一全局值 → 所有平台展示同样数量,首页「平台精选」数量随配置变化。
+        const raw = parseInt(String((config && config.homeCount) != null ? config.homeCount : 6), 10);
+        const homeCount = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 50) : 6;
+        for (const ch of channels) {
+          ch.playlists = ch.playlists.slice(0, homeCount);
+          ch.count = ch.playlists.length;
+        }
+        return { channels };
       },
 
       async playlistSongs(config, source, id) {

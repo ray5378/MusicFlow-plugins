@@ -27,10 +27,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.1",
+    version: "1.5.2",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全)。运行于 QuickJS 沙箱。",
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全,MusicBrainz 不可达时自动降级)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
@@ -262,23 +262,18 @@ globalThis.__mfPlugin = {
         }
       }
 
-      // LB 换出名 → byMbid;换不出名 → unnamed(按推荐顺序)。两类都经 MusicBrainz 补全:
-      // - named:用 MB 覆盖更可靠的 artist / album(标题保留 LB 的);
-      // - unnamed:LB 元数据缺失,直接用 MB 的 title(+artist/album)兜底,使推荐条目不被丢弃。
-      const named = [...byMbid.values()];
+      // LB 换出名 → byMbid;换不出名 → unnamed(按推荐顺序)。只对 unnamed 走 MusicBrainz
+      // 兜底(用 MB 的 title 使推荐条目不被丢弃);named 的 LB 结果已含 title/artist/album,
+      // 不再调 MB 覆盖(收益低,且串行请求会拖爆 15s 调用超时)。
       const unnamed = mbids.filter((m) => !byMbid.has(m.mbid)).map((m) => ({ mbid: m.mbid }));
-      const mbNamed = await fetchMusicBrainzMeta(named.slice(0, MAX_MB));
-      const mbUnnamed = await fetchMusicBrainzMeta(unnamed.slice(0, MAX_MB));
+      // 兜底带预算(8s)+ maxItems(10) + fail-fast,保证 runDailyJob 整体在 15s 内返回。
+      const mbUnnamed = await fetchMusicBrainzMeta(unnamed, { maxItems: 10, budgetMs: 8000 });
 
       const result = [];
       for (const m of mbids) {
         const lb = byMbid.get(m.mbid);
         if (lb) {
-          const aug = mbNamed.get(m.mbid);
-          if (aug) {
-            if (aug.artist) lb.artist = aug.artist;
-            if (aug.album) lb.album = aug.album;
-          }
+          // LB 已换出完整 title/artist/album,直接采用(不再经 MB 覆盖)。
           result.push(lb);
           continue;
         }
@@ -296,11 +291,10 @@ globalThis.__mfPlugin = {
       return result;
     }
 
-    // MusicBrainz 批量查询上限(限流 1 req/s,避免生成太久;推荐按分排序,前 40 足够)。
-    const MAX_MB = 40;
     const MB_RECORDING = "https://musicbrainz.org/ws/2/recording";
 
-    /** 忙等 sleep(沙箱无 setTimeout):MusicBrainz 要求 ≤1 req/s,请求间间隔 1.1s。 */
+    /** 忙等 sleep(沙箱无 setTimeout):MusicBrainz 要求 ≤1 req/s,请求间间隔 1.1s。
+     *  仅在上一次请求成功后才等待(失败的请求没打到 MB 配额,不浪费限流间隔)。 */
     function mbSleep() {
       const t0 = Date.now();
       while (Date.now() - t0 < 1100) { /* spin */ }
@@ -317,23 +311,35 @@ globalThis.__mfPlugin = {
     }
 
     /**
-     * 逐曲调 MusicBrainz 拿 title + artist-credit + releases(专辑)。
-     * title 用于兜底 LB 元数据换不出名的推荐项;artist/album 用于覆盖 LB 解析结果。
+     * 对 LB 元数据换不出名的推荐 MBID,逐曲调 MusicBrainz 拿 title + artist-credit + releases。
+     * title 用于兜底;artist/album 一并带回。
+     * 保护(否则 runDailyJob 整体超 15s 被宿主中断,手动刷新报 500):
+     *   - maxItems:只兜底推荐分最高的前 N 个;
+     *   - budgetMs:总时间预算,超时立即收手;
+     *   - 连续失败 ≥3 次视为 MusicBrainz 不可达,整体放弃(fail-fast);
+     *   - 单请求 timeout 6s;仅成功请求后限流 sleep,失败不等待。
      * @returns {Promise<Map<string,{title:string,artist:string,album:string}>>}
      */
-    async function fetchMusicBrainzMeta(items) {
+    async function fetchMusicBrainzMeta(items, { maxItems = 10, budgetMs = 8000 } = {}) {
       const out = new Map();
-      for (let i = 0; i < items.length; i++) {
-        const it = items[i];
-        if (i > 0) mbSleep(); // 首请求前不等待;之后每次间隔 1.1s(≤1 req/s)
+      const list = (items || []).slice(0, maxItems);
+      const t0 = Date.now();
+      let lastOk = false;       // 上一次请求是否成功(成功后才限流 sleep)
+      let consecutiveFails = 0; // 连续失败计数(fail-fast)
+      for (let i = 0; i < list.length; i++) {
+        if (Date.now() - t0 >= budgetMs) break; // 预算闸:超时立即收手
+        if (consecutiveFails >= 3) break;       // fail-fast:MB 不可达时快速放弃
+        const it = list[i];
+        if (i > 0 && lastOk) mbSleep(); // 首请求前不等待;仅成功后间隔 1.1s(≤1 req/s)
         const url = MB_RECORDING + "/" + encodeURIComponent(it.mbid) + "?inc=artist-credits+releases&fmt=json";
+        let ok = false;
         try {
           const r = await host.http(url, {
             method: "GET",
             headers: { Accept: "application/json", "User-Agent": "MusicFlow-V2/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow-V2)" },
-            timeout: 15000,
+            timeout: 6000,
           });
-          if (r.ok) {
+          if (r && r.ok) {
             const d = JSON.parse(r.body || "{}");
             const ac = Array.isArray(d["artist-credit"]) ? d["artist-credit"] : [];
             const names = [];
@@ -345,8 +351,15 @@ globalThis.__mfPlugin = {
             const title = String(d.title || "").trim();
             // MB 单曲接口本身返回 title;署名名/专辑/曲名任一有值即纳入(供 LB 无名项兜底)。
             if (title || names.length || album) out.set(it.mbid, { title, artist: names.join(" / "), album });
+            ok = true;
+          } else {
+            // 非 2xx / 网络失败信封(status:0):不计入限流间隔,快速进入下一项
+            ok = false;
           }
-        } catch (e) { /* 单曲失败跳过,保留 LB 解析结果 */ }
+        } catch (e) { /* 单曲失败跳过,保留 LB 解析结果 */ ok = false; }
+        lastOk = ok;
+        if (ok) consecutiveFails = 0;
+        else consecutiveFails++;
       }
       return out;
     }

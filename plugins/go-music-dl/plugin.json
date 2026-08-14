@@ -1,13 +1,14 @@
 {
   "id": "go-music-dl",
   "name": "go-music-dl 全网聚合",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "type": "source",
   "description": "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。运行于 QuickJS 沙箱(host.http / host.config),无 Node 权限。",
   "capabilities": [
     "search",
     "recommend",
     "playlistSongs",
+    "userPlaylists",
     "stream",
     "webRotation",
     "lyricProvider",

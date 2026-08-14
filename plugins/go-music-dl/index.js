@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.5",
+    version: "1.2.6",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,可自动登录并同步各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -49,6 +49,9 @@ globalThis.__mfPlugin = {
     downloadUrl: "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
+      { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
+      { key: "password", label: "登录密码", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
+      { key: "importMyPlaylists", label: "同步我的私人歌单", type: "switch", default: true, help: "开启后,插件在登录态下自动把各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)作为本地歌单同步(每日调度 + 手动「同步所有平台」触发);关闭则只同步公开推荐" },
       { key: "sources", label: "搜索平台", type: "multiselect", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
@@ -195,6 +198,52 @@ globalThis.__mfPlugin = {
       return channels;
     }
 
+    /** 解析「我的歌单」页面:优先按每张卡片「导入本地」按钮的 data-* 属性提取,
+     *  兜底再扫 navigateTo('/music/playlist?...') 链接。两种都产出自同形状对象,
+     *  按 id 去重。只取平台歌单,跳过 local 自制。 */
+    function parseUserPlaylists(html) {
+      const out = [];
+      const seen = new Set();
+      const push = (p) => {
+        if (!p.id || !p.source || p.source === "local" || seen.has(p.id)) return;
+        seen.add(p.id);
+        out.push(p);
+      };
+      // 模式 1:「导入本地」按钮携带 data-* 属性
+      const btnRe = /<button\b[^>]*\bonclick="[^"]*importCollectionFromButton\(this\)"[^>]*>/g;
+      let m;
+      while ((m = btnRe.exec(html)) !== null) {
+        const block = m[0];
+        const attr = (name) => {
+          const a = new RegExp(`\\bdata-${name}="([^"]*)"`, "i").exec(block);
+          return a ? decodeAttr(a[1]) : "";
+        };
+        push({
+          id: attr("external-id"),
+          source: attr("source"),
+          name: attr("name"),
+          creator: attr("creator"),
+          trackCount: attr("track-count"),
+          link: attr("link"),
+        });
+      }
+      // 模式 2:navigateTo('/music/playlist?source=..&id=..') 链接(兜底)
+      const navRe = /navigateTo\(\s*['"]([^'"]*\/music\/playlist[^'"]*)['"]\s*\)/g;
+      while ((m = navRe.exec(html)) !== null) {
+        let path = decodeAttr(m[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
+        const params = new URLSearchParams(path.split("?")[1] || "");
+        push({
+          id: params.get("id") || "",
+          source: params.get("source") || "",
+          name: params.get("name") || "",
+          creator: params.get("creator") || "",
+          trackCount: params.get("track_count") || "",
+          link: params.get("link") || "",
+        });
+      }
+      return out;
+    }
+
     /** 由已存储的 /music/download 流地址构造 /music/download_lrc 歌词地址。 */
     function lrcUrlFromSong(song) {
       if (!song.url || !String(song.url).includes("/music/download")) return null;
@@ -254,6 +303,79 @@ globalThis.__mfPlugin = {
       },
 
       async recommend(config) {
+        // ===== go-music-dl 后台登录 + 我的私人歌单 =====
+        // 仅当配置了用户名/密码且开启开关时尝试登录;后端未启用 auth 时也可直接拉公开歌单。
+        const PRIVATE_SOURCES = ["netease", "qq", "kugou", "soda"]; // go-music-dl 支持私人歌单的平台
+        const PRIVATE_LABELS = { netease: "网易云", qq: "QQ 音乐", kugou: "酷狗", soda: "汽水" };
+        const labelOf = (src) => PRIVATE_LABELS[src] || src;
+        const extractSessionCookie = (raw) => {
+          if (!raw) return null;
+          for (const part of String(raw).split(";")) {
+            const i = part.indexOf("music_dl_session=");
+            if (i >= 0) return part.slice(i + "music_dl_session=".length).trim();
+          }
+          return null;
+        };
+        const getSetCookie = (r) => {
+          if (!r || !r.headers) return null;
+          if (typeof r.headers.get === "function") {
+            const v = r.headers.get("set-cookie");
+            if (v) return v;
+          }
+          return r.headers["set-cookie"] || r.headers["Set-Cookie"] || null;
+        };
+        const ensureLogin = async (cfg) => {
+          const user = String((cfg && cfg.username) || "").trim();
+          const pass = String((cfg && cfg.password) || "").trim();
+          if (!user || !pass) return null; // 未配置 → 不登录
+          // 复用缓存会话(7 天有效期,此处 6 天内复用,避免每次同步都登录)
+          try {
+            const cached = await host.storage.get("gmdlSession");
+            if (cached && cached.cookie && Date.now() - (cached.ts || 0) < 6 * 864e5) return cached.cookie;
+          } catch { /* 忽略缓存读取错误 */ }
+          const base = baseOf(cfg);
+          try {
+            // go-music-dl 登录为表单提交,成功后经 Set-Cookie 下发 music_dl_session;
+            // 返回 302 跳转,故用 redirect:"manual" 直接拿到带 Cookie 的响应。
+            const r = await host.http(base + "/music/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: "username=" + encodeURIComponent(user) + "&password=" + encodeURIComponent(pass),
+              redirect: "manual",
+              timeout: 15000,
+            });
+            const cookie = extractSessionCookie(getSetCookie(r));
+            if (cookie) {
+              try { await host.storage.set("gmdlSession", { cookie, ts: Date.now() }); } catch { /* 忽略 */ }
+              return cookie;
+            }
+            host.log("go-music-dl 登录未返回会话 Cookie(凭据错误或后端未启用登录)");
+          } catch (e) {
+            host.log("go-music-dl 登录失败: " + (e && e.message ? e.message : e));
+          }
+          return null;
+        };
+        const fetchUserPlaylists = async (cfg, source, cookie) => {
+          const base = baseOf(cfg);
+          const url = base + "/music/user_playlists?sources=" + encodeURIComponent(source);
+          const doFetch = (ck) => {
+            const h = {};
+            if (ck) h["Cookie"] = "music_dl_session=" + ck;
+            return host.http(url, { method: "GET", headers: h, timeout: 20000 });
+          };
+          // 后端无 auth 时 user_playlists 直接返回歌单;有 auth 时未带有效 Cookie 会 302 到登录页。
+          const isLoginPage = (b) => /登录 music-dl|初始化管理员账号/.test(b || "");
+          let r = await doFetch(cookie);
+          if (r.ok && isLoginPage(r.body)) {
+            // 会话失效(缓存 Cookie 过期)→ 清缓存重新登录一次再试
+            try { await host.storage.delete("gmdlSession"); } catch { /* 忽略 */ }
+            const fresh = await ensureLogin(cfg);
+            if (fresh) r = await doFetch(fresh);
+          }
+          if (!r.ok || isLoginPage(r.body)) return [];
+          return parseUserPlaylists(r.body || "");
+        };
+
         const html = await httpText(baseOf(config) + "/music/recommend", 20000);
         const channels = parseRecommendPlaylists(html);
         // 每平台歌单数由插件自身配置 homeCount 控制(默认 6,取值 1~50)。
@@ -263,6 +385,24 @@ globalThis.__mfPlugin = {
         for (const ch of channels) {
           ch.playlists = ch.playlists.slice(0, homeCount);
           ch.count = ch.playlists.length;
+        }
+        // 同步「我的私人歌单」(需配置用户名/密码且开启开关):
+        // 登录后拉各平台 user_playlists 作为额外频道;现有同步流程会自动落本地歌单。
+        // 拉取失败/未登录时静默跳过(不追加空频道),避免误删已导入的歌单。
+        if ((config && config.importMyPlaylists) !== false) {
+          const user = String((config && config.username) || "").trim();
+          const pass = String((config && config.password) || "").trim();
+          if (user && pass) {
+            const cookie = await ensureLogin(config);
+            const srcs = ((config && config.sources && config.sources.length) ? config.sources : PRIVATE_SOURCES)
+              .filter((s) => PRIVATE_SOURCES.includes(s));
+            for (const src of srcs) {
+              try {
+                const pls = await fetchUserPlaylists(config, src, cookie);
+                if (pls.length) channels.push({ source: src, name: "我的歌单·" + labelOf(src), count: pls.length, playlists: pls });
+              } catch (e) { host.log("拉取我的歌单失败(" + src + "): " + (e && e.message ? e.message : e)); }
+            }
+          }
         }
         return { channels };
       },

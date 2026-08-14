@@ -19,7 +19,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| [`listenbrainz`](plugins/listenbrainz) | 1.3.0 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。不用这类服务的话无需安装 |
+| [`listenbrainz`](plugins/listenbrainz) | 1.4.0 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。不用这类服务的话无需安装 |
 
 > 插件运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
 

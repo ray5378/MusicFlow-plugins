@@ -27,10 +27,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.3.0",
+    version: "1.4.0",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单。运行于 QuickJS 沙箱。",
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.25", // host.playlists / host.sources 自 1.7.24 起可用;recommendPlaylist 能力自 1.7.25 起识别
@@ -256,13 +256,77 @@ globalThis.__mfPlugin = {
           });
         }
       }
+
+      // 补艺人/专辑:ListenBrainz metadata 不返回 artist / release(rels 常为空),
+      // 经 MusicBrainz 单曲接口补全(带 UA + 限流,只处理前 MAX_MB 首)。MB 结果覆盖
+      // LB 的解析结果(更可靠),失败则保留原值(可能为空,标题仍可参与匹配)。
+      const mb = await fetchMusicBrainzMeta([...byMbid.values()].slice(0, MAX_MB));
+
       // 按原始推荐顺序回填(只保留有元数据的)
       const result = [];
       for (const m of mbids) {
         const meta = byMbid.get(m.mbid);
-        if (meta) result.push(meta);
+        if (!meta) continue;
+        const extra = mb.get(m.mbid);
+        if (extra) {
+          if (extra.artist) meta.artist = extra.artist;
+          if (extra.album) meta.album = extra.album;
+        }
+        result.push(meta);
       }
       return result;
+    }
+
+    // MusicBrainz 批量查询上限(限流 1 req/s,避免生成太久;推荐按分排序,前 40 足够)。
+    const MAX_MB = 40;
+    const MB_RECORDING = "https://musicbrainz.org/ws/2/recording";
+
+    /** 忙等 sleep(沙箱无 setTimeout):MusicBrainz 要求 ≤1 req/s,请求间间隔 1.1s。 */
+    function mbSleep() {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 1100) { /* spin */ }
+    }
+
+    /** 从 releases 里挑专辑名:优先 official + 专辑类型,否则取第一条。 */
+    function pickAlbumTitle(releases) {
+      if (!Array.isArray(releases) || !releases.length) return "";
+      const album = releases.find((r) => {
+        const pt = String((r && r["primary-type"]) || "").toLowerCase();
+        return pt === "album" && ((r && r.status === "official") || !(r && r.status));
+      });
+      return (album && album.title) || (releases[0] && releases[0].title) || "";
+    }
+
+    /**
+     * 逐曲调 MusicBrainz 拿 artist-credit 与 releases(专辑)。
+     * @returns {Promise<Map<string,{artist:string,album:string}>>}
+     */
+    async function fetchMusicBrainzMeta(items) {
+      const out = new Map();
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (i > 0) mbSleep(); // 首请求前不等待;之后每次间隔 1.1s(≤1 req/s)
+        const url = MB_RECORDING + "/" + encodeURIComponent(it.mbid) + "?inc=artist-credits+releases&fmt=json";
+        try {
+          const r = await host.http(url, {
+            method: "GET",
+            headers: { Accept: "application/json", "User-Agent": "MusicFlow-V2/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow-V2)" },
+            timeout: 15000,
+          });
+          if (r.ok) {
+            const d = JSON.parse(r.body || "{}");
+            const ac = Array.isArray(d["artist-credit"]) ? d["artist-credit"] : [];
+            const names = [];
+            for (const a of ac) {
+              const n = String((a && (a.name || (a.artist && a.artist.name))) || "").trim();
+              if (n) names.push(n);
+            }
+            const album = pickAlbumTitle(d.releases);
+            if (names.length || album) out.set(it.mbid, { artist: names.join(" / "), album });
+          }
+        } catch (e) { /* 单曲失败跳过,保留 LB 解析结果 */ }
+      }
+      return out;
     }
 
     /** 本地曲库模糊匹配:优先「标题+艺人」,再退化「仅标题」,挑标题最相似者。 */

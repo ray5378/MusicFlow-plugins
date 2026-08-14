@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.0",
+    version: "1.5.1",
     type: "scrobbler",
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全)。运行于 QuickJS 沙箱。",
@@ -232,6 +232,11 @@ globalThis.__mfPlugin = {
      * 批量换 MBID → 曲目信息。按传入 mbid 顺序返回 {mbid,title,artist,album,duration}。
      * metadata 接口单次最多约 50 个较稳,分批请求。
      */
+    /**
+     * 批量换 MBID → 曲目信息。按传入 mbid 顺序返回 {mbid,title,artist,album,duration}。
+     * 流程:LB metadata 先换名(精确) → 对 LB 换不出名的 MBID,改走 MusicBrainz 单曲
+     * 接口(它本身就返回 title)兜底,避免「有推荐 MBID 却因 LB 元数据缺失而整条丢弃」。
+     */
     async function fetchMetadata(mbids) {
       const byMbid = new Map();
       const BATCH = 50;
@@ -257,22 +262,36 @@ globalThis.__mfPlugin = {
         }
       }
 
-      // 补艺人/专辑:ListenBrainz metadata 不返回 artist / release(rels 常为空),
-      // 经 MusicBrainz 单曲接口补全(带 UA + 限流,只处理前 MAX_MB 首)。MB 结果覆盖
-      // LB 的解析结果(更可靠),失败则保留原值(可能为空,标题仍可参与匹配)。
-      const mb = await fetchMusicBrainzMeta([...byMbid.values()].slice(0, MAX_MB));
+      // LB 换出名 → byMbid;换不出名 → unnamed(按推荐顺序)。两类都经 MusicBrainz 补全:
+      // - named:用 MB 覆盖更可靠的 artist / album(标题保留 LB 的);
+      // - unnamed:LB 元数据缺失,直接用 MB 的 title(+artist/album)兜底,使推荐条目不被丢弃。
+      const named = [...byMbid.values()];
+      const unnamed = mbids.filter((m) => !byMbid.has(m.mbid)).map((m) => ({ mbid: m.mbid }));
+      const mbNamed = await fetchMusicBrainzMeta(named.slice(0, MAX_MB));
+      const mbUnnamed = await fetchMusicBrainzMeta(unnamed.slice(0, MAX_MB));
 
-      // 按原始推荐顺序回填(只保留有元数据的)
       const result = [];
       for (const m of mbids) {
-        const meta = byMbid.get(m.mbid);
-        if (!meta) continue;
-        const extra = mb.get(m.mbid);
-        if (extra) {
-          if (extra.artist) meta.artist = extra.artist;
-          if (extra.album) meta.album = extra.album;
+        const lb = byMbid.get(m.mbid);
+        if (lb) {
+          const aug = mbNamed.get(m.mbid);
+          if (aug) {
+            if (aug.artist) lb.artist = aug.artist;
+            if (aug.album) lb.album = aug.album;
+          }
+          result.push(lb);
+          continue;
         }
-        result.push(meta);
+        const mb = mbUnnamed.get(m.mbid);
+        if (mb && mb.title) {
+          result.push({
+            mbid: m.mbid,
+            title: mb.title,
+            artist: mb.artist || "",
+            album: mb.album || "",
+            duration: null,
+          });
+        }
       }
       return result;
     }
@@ -298,8 +317,9 @@ globalThis.__mfPlugin = {
     }
 
     /**
-     * 逐曲调 MusicBrainz 拿 artist-credit 与 releases(专辑)。
-     * @returns {Promise<Map<string,{artist:string,album:string}>>}
+     * 逐曲调 MusicBrainz 拿 title + artist-credit + releases(专辑)。
+     * title 用于兜底 LB 元数据换不出名的推荐项;artist/album 用于覆盖 LB 解析结果。
+     * @returns {Promise<Map<string,{title:string,artist:string,album:string}>>}
      */
     async function fetchMusicBrainzMeta(items) {
       const out = new Map();
@@ -322,7 +342,9 @@ globalThis.__mfPlugin = {
               if (n) names.push(n);
             }
             const album = pickAlbumTitle(d.releases);
-            if (names.length || album) out.set(it.mbid, { artist: names.join(" / "), album });
+            const title = String(d.title || "").trim();
+            // MB 单曲接口本身返回 title;署名名/专辑/曲名任一有值即纳入(供 LB 无名项兜底)。
+            if (title || names.length || album) out.set(it.mbid, { title, artist: names.join(" / "), album });
           }
         } catch (e) { /* 单曲失败跳过,保留 LB 解析结果 */ }
       }

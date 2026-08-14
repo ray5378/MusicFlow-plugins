@@ -20,7 +20,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
 | [`go-music-dl`](plugins/go-music-dl) | 1.2.5 | source | 在线源三合一（搜索匹配 / 歌词 / 封面）：对接自建 go-music-dl 服务，为歌单未匹配曲目提供在线补全、播放时单曲匹配，并为本地库补歌词/封面。不部署该服务则无需安装 |
-| [`listenbrainz`](plugins/listenbrainz) | 1.5.0 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。不用这类服务的话无需安装 |
+| [`listenbrainz`](plugins/listenbrainz) | 1.5.1 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。v1.5.1 修复：LB 元数据换不出曲名的推荐项改由 MusicBrainz 兜底补名，歌单从 ~1 首恢复到 ~25 首。不用这类服务的话无需安装 |
 | [`lastfm`](plugins/lastfm) | 1.0.1 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [Last.fm](https://www.last.fm)（MD5 签名鉴权），并按收听数据组装「Last.fm 推荐」歌单（Top 多周期 + 喜欢的歌 + 相似艺人，可固定首页、每日调度 + 手动刷新，本地/在线源补全）。需要申请 Last.fm API Key 并在浏览器授权一次拿 Session Key（插件配置页各输入框下方已附「获取链接」，可一键跳到申请 / 授权页）。不用这类服务的话无需安装 |
 
 > 插件运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。

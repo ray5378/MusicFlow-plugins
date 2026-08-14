@@ -8,8 +8,9 @@
 //
 // 沙箱契约(QuickJS VM 内运行,拿不到 Node 能力):
 //   - 纯 JS 脚本:globalThis.__mfPlugin = { manifest, create(host) };
-//   - 网络走 host.http(url, { method, headers, body, timeout}),返回
-//     { ok, status, headers, body(text) };
+//   - 网络走 host.http(url, { method, headers, body, timeout, proxy }),返回
+//     { ok, status, headers, body(text) };proxy=true 强制走系统代理,false 直连,
+//     缺省跟随系统设置(需宿主 1.7.38+,旧宿主忽略该字段直连);
 //   - host.config 每次调用前刷新,调用时实时读取(cfg());
 //   - host.storage 持久化小键值(间隔闸门 lastRun);
 //   - host.songs.search(query, {limit}) 本地曲库模糊匹配(title/artist/album);
@@ -27,10 +28,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.2",
+    version: "1.5.3",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全,MusicBrainz 不可达时自动降级)。运行于 QuickJS 沙箱。",
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
@@ -105,6 +106,20 @@ globalThis.__mfPlugin = {
         help: "官方实例留默认即可;自建 ListenBrainz 填你的地址",
       },
       {
+        key: "useProxy",
+        label: "走系统网络代理",
+        type: "switch",
+        default: true,
+        help: "开:经系统设置里的「网络代理」访问第三方 API(容器直连 musicbrainz.org 等被墙域名不通时建议开启);关:直连(直连可达时更快,且本插件已内置重试/收听历史兜底)",
+      },
+      {
+        key: "excludeListened",
+        label: "排除已听过的推荐",
+        type: "switch",
+        default: false,
+        help: "开:推荐歌单里跳过你已听过(收听历史命中)的曲目,只留新歌。注意:MusicBrainz 不可达时换名受限,开启后推荐数量可能明显变少;推荐本身可能含已听过(尤其「常听艺人」类型),可改用「相似艺人/原始模型」类型或开启此项",
+      },
+      {
         key: "submitPlayingNow",
         label: "上报「正在播放」",
         type: "switch",
@@ -127,6 +142,11 @@ globalThis.__mfPlugin = {
     const cfg = () => host.config || {};
 
     // ---------- 通用 HTTP ----------
+    /** 插件级代理开关:true 强制走系统代理,false 强制直连(供 host.http 的 proxy 字段)。 */
+    function proxyFlag() {
+      return { proxy: cfg().useProxy !== false };
+    }
+
     /** 归一化 API 根地址：去掉结尾斜杠，空值回落到官方实例。 */
     function apiBase() {
       const raw = String(cfg().apiUrl || "").trim();
@@ -135,7 +155,7 @@ globalThis.__mfPlugin = {
 
     /** GET 一个 JSON 接口，返回解析后的对象；非 2xx 抛可读错误。 */
     async function httpGetJson(url) {
-      const r = await host.http(url, { method: "GET", headers: { Accept: "application/json" }, timeout: 20000 });
+      const r = await host.http(url, { method: "GET", headers: { Accept: "application/json" }, timeout: 20000, ...proxyFlag() });
       if (!r.ok) {
         if (r.status === 204) return null; // 推荐尚未生成(空响应)
         let detail = "";
@@ -173,6 +193,7 @@ globalThis.__mfPlugin = {
         headers: { Authorization: "Token " + token, "Content-Type": "application/json" },
         body: JSON.stringify(body),
         timeout: 15000,
+        ...proxyFlag(),
       });
       if (r.ok) return;
       let detail = "";
@@ -233,12 +254,62 @@ globalThis.__mfPlugin = {
      * metadata 接口单次最多约 50 个较稳,分批请求。
      */
     /**
+     * 拉取用户最近收听历史,建 recording_mbid → 曲目信息映射(直连 LB,不依赖 MusicBrainz)。
+     * ListenBrainz 对 scrobble 过的曲目会回填 track_metadata.mbid_mapping.recording_mbid,
+     * 因此「推荐里正好听过的歌」无需 MB 也能换出曲名。最多 3 页 × 100 条,上限 100 个映射。
+     */
+    async function fetchListenMapping() {
+      const out = new Map();
+      const user = String(cfg().username || "").trim();
+      if (!user) return out;
+      for (let offset = 0; offset < 300 && out.size < 100; offset += 100) {
+        let data = null;
+        try {
+          data = await httpGetJson(`${apiBase()}/1/user/${encodeURIComponent(user)}/listens?count=100&offset=${offset}`);
+        } catch (e) { break; } // 拉取失败即停,不阻断主流程
+        const arr = (data && data.payload && Array.isArray(data.payload.listens)) ? data.payload.listens : [];
+        if (!arr.length) break;
+        for (const l of arr) {
+          const tm = (l && l.track_metadata) || {};
+          const mbid = (tm.mbid_mapping && tm.mbid_mapping.recording_mbid) ||
+            (tm.additional_info && tm.additional_info.recording_mbid);
+          if (!mbid || out.has(mbid)) continue;
+          const title = String(tm.track_name || "").trim();
+          const artist = String(tm.artist_name || "").trim();
+          if (!title || !artist) continue;
+          const dur = Number((tm.additional_info && tm.additional_info.duration_ms) || 0);
+          out.set(mbid, {
+            mbid,
+            title,
+            artist,
+            album: String(tm.release_name || "").trim(),
+            duration: dur > 0 ? dur : null,
+          });
+        }
+      }
+      return out;
+    }
+
+    /**
      * 批量换 MBID → 曲目信息。按传入 mbid 顺序返回 {mbid,title,artist,album,duration}。
-     * 流程:LB metadata 先换名(精确) → 对 LB 换不出名的 MBID,改走 MusicBrainz 单曲
-     * 接口(它本身就返回 title)兜底,避免「有推荐 MBID 却因 LB 元数据缺失而整条丢弃」。
+     * 三级换名(前两级直连可达,不依赖 MusicBrainz 也有保底):
+     *   1) 用户收听历史 listens 的 recording_mbid 映射(本插件 scrobble 过的歌,LB 会回填
+     *      mbid_mapping;覆盖「推荐里正好听过的歌」);
+     *   2) LB metadata 批量换名(精确);
+     *   3) 仍未换出的按推荐序取前 N 个走 MusicBrainz 单曲接口兜底(带预算+fail-fast)。
      */
     async function fetchMetadata(mbids) {
       const byMbid = new Map();
+      const excludeListened = cfg().excludeListened === true;
+
+      // 1) 先建收听历史映射(直连,1~3 个请求):命中即补进 byMbid;
+      //    excludeListened 开启时,命中历史 = 已听过 → 不放进歌单(只留新歌)。
+      const listenMap = await fetchListenMapping();
+      for (const [mbid, meta] of listenMap) {
+        if (excludeListened) continue;
+        if (!byMbid.has(mbid)) byMbid.set(mbid, meta);
+      }
+
       const BATCH = 50;
       for (let i = 0; i < mbids.length; i += BATCH) {
         const batch = mbids.slice(i, i + BATCH);
@@ -262,12 +333,15 @@ globalThis.__mfPlugin = {
         }
       }
 
-      // LB 换出名 → byMbid;换不出名 → unnamed(按推荐顺序)。只对 unnamed 走 MusicBrainz
+      // 前两级换出名 → byMbid;仍未换出 → unnamed(按推荐顺序)。只对 unnamed 走 MusicBrainz
       // 兜底(用 MB 的 title 使推荐条目不被丢弃);named 的 LB 结果已含 title/artist/album,
       // 不再调 MB 覆盖(收益低,且串行请求会拖爆 15s 调用超时)。
-      const unnamed = mbids.filter((m) => !byMbid.has(m.mbid)).map((m) => ({ mbid: m.mbid }));
-      // 兜底带预算(8s)+ maxItems(10) + fail-fast,保证 runDailyJob 整体在 15s 内返回。
-      const mbUnnamed = await fetchMusicBrainzMeta(unnamed, { maxItems: 10, budgetMs: 8000 });
+      // excludeListened 开启时,收听历史命中的 MBID(已听过)不参与兜底,同样排除。
+      const unnamed = mbids
+        .filter((m) => !byMbid.has(m.mbid) && !(excludeListened && listenMap.has(m.mbid)))
+        .map((m) => ({ mbid: m.mbid }));
+      // 兜底带预算(10s)+ maxItems(12) + fail-fast + 单曲重试,保证 runDailyJob 整体在 15s 内返回。
+      const mbUnnamed = await fetchMusicBrainzMeta(unnamed, { maxItems: 12, budgetMs: 10000 });
 
       const result = [];
       for (const m of mbids) {
@@ -316,11 +390,12 @@ globalThis.__mfPlugin = {
      * 保护(否则 runDailyJob 整体超 15s 被宿主中断,手动刷新报 500):
      *   - maxItems:只兜底推荐分最高的前 N 个;
      *   - budgetMs:总时间预算,超时立即收手;
+     *   - 单曲失败重试 1 次(网络抖动/5xx 可救回;4xx 不重试);
      *   - 连续失败 ≥3 次视为 MusicBrainz 不可达,整体放弃(fail-fast);
      *   - 单请求 timeout 6s;仅成功请求后限流 sleep,失败不等待。
      * @returns {Promise<Map<string,{title:string,artist:string,album:string}>>}
      */
-    async function fetchMusicBrainzMeta(items, { maxItems = 10, budgetMs = 8000 } = {}) {
+    async function fetchMusicBrainzMeta(items, { maxItems = 12, budgetMs = 10000 } = {}) {
       const out = new Map();
       const list = (items || []).slice(0, maxItems);
       const t0 = Date.now();
@@ -333,30 +408,35 @@ globalThis.__mfPlugin = {
         if (i > 0 && lastOk) mbSleep(); // 首请求前不等待;仅成功后间隔 1.1s(≤1 req/s)
         const url = MB_RECORDING + "/" + encodeURIComponent(it.mbid) + "?inc=artist-credits+releases&fmt=json";
         let ok = false;
-        try {
-          const r = await host.http(url, {
-            method: "GET",
-            headers: { Accept: "application/json", "User-Agent": "MusicFlow-V2/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow-V2)" },
-            timeout: 6000,
-          });
-          if (r && r.ok) {
-            const d = JSON.parse(r.body || "{}");
-            const ac = Array.isArray(d["artist-credit"]) ? d["artist-credit"] : [];
-            const names = [];
-            for (const a of ac) {
-              const n = String((a && (a.name || (a.artist && a.artist.name))) || "").trim();
-              if (n) names.push(n);
+        // 单曲最多 2 次尝试:4xx 立即放弃(改错名重试无意义);网络失败(status:0)/5xx 重试 1 次。
+        for (let attempt = 0; attempt < 2 && !ok && Date.now() - t0 < budgetMs; attempt++) {
+          try {
+            const r = await host.http(url, {
+              method: "GET",
+              headers: { Accept: "application/json", "User-Agent": "MusicFlow-V2/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow-V2)" },
+              timeout: 6000,
+              ...proxyFlag(),
+            });
+            if (r && r.ok) {
+              const d = JSON.parse(r.body || "{}");
+              const ac = Array.isArray(d["artist-credit"]) ? d["artist-credit"] : [];
+              const names = [];
+              for (const a of ac) {
+                const n = String((a && (a.name || (a.artist && a.artist.name))) || "").trim();
+                if (n) names.push(n);
+              }
+              const album = pickAlbumTitle(d.releases);
+              const title = String(d.title || "").trim();
+              // MB 单曲接口本身返回 title;署名名/专辑/曲名任一有值即纳入(供 LB 无名项兜底)。
+              if (title || names.length || album) out.set(it.mbid, { title, artist: names.join(" / "), album });
+              ok = true;
+            } else {
+              const status = r && r.status;
+              if (typeof status === "number" && status >= 400 && status < 500) break; // 4xx 不重试
+              // 网络失败(status:0)或 5xx:进入下一次尝试
             }
-            const album = pickAlbumTitle(d.releases);
-            const title = String(d.title || "").trim();
-            // MB 单曲接口本身返回 title;署名名/专辑/曲名任一有值即纳入(供 LB 无名项兜底)。
-            if (title || names.length || album) out.set(it.mbid, { title, artist: names.join(" / "), album });
-            ok = true;
-          } else {
-            // 非 2xx / 网络失败信封(status:0):不计入限流间隔,快速进入下一项
-            ok = false;
-          }
-        } catch (e) { /* 单曲失败跳过,保留 LB 解析结果 */ ok = false; }
+          } catch (e) { /* 网络异常:进入下一次尝试 */ }
+        }
         lastOk = ok;
         if (ok) consecutiveFails = 0;
         else consecutiveFails++;
@@ -525,6 +605,7 @@ globalThis.__mfPlugin = {
             method: "GET",
             headers: { Accept: "application/json" },
             timeout: 10000,
+            ...proxyFlag(),
           });
           if (r && r.ok) return { status: "ok", message: "API 可达" };
           return { status: "down", message: "API 返回 HTTP " + (r && r.status) };

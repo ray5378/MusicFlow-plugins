@@ -1,0 +1,7 @@
+{
+  "name": "musicflow-plugin-lastfm",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MusicFlow V2 official external plugin: Last.fm scrobbler + recommend playlist"
+}

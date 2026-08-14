@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.7",
+    version: "1.2.8",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理,歌单内歌曲每日自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**分批滚动同步到本地(不轮转、不被清理;受沙箱 15s 单次调用配额限制,每次推进一批、进度持久化,跨日覆盖全部歌单,歌单内歌曲自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -52,7 +52,7 @@ globalThis.__mfPlugin = {
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
       { key: "password", label: "登录密码", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
-      { key: "importMyPlaylists", label: "同步我的私人歌单", type: "switch", default: true, help: "开启后,插件每日自动登录并同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理,歌单内歌曲每日自动刷新(本地缺失的经 go-music-dl 在线补全为可播条目);关闭则只同步公开推荐" },
+      { key: "importMyPlaylists", label: "同步我的私人歌单", type: "switch", default: true, help: "开启后,插件每日自动登录并分批滚动同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理;每次同步一个批次(沙箱 15s 配额内),进度持久化、跨日推进直至全部覆盖,歌单内歌曲自动刷新为可播条目(本地缺失的交由后台自动补全);关闭则只同步公开推荐" },
       { key: "sources", label: "搜索平台", type: "multiselect", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
@@ -271,6 +271,15 @@ globalThis.__mfPlugin = {
     const PRIVATE_SOURCES = ["netease", "qq", "kugou", "soda"]; // go-music-dl 支持私人歌单的平台
     const PRIVATE_LABELS = { netease: "网易云", qq: "QQ 音乐", kugou: "酷狗", soda: "汽水" };
     const labelOf = (src) => PRIVATE_LABELS[src] || src;
+    // 沙箱单次调用 15s 硬配额 → 分批滚动同步:每次只处理一个批次,进度持久化到
+    // host.storage(gmdlMineCursor),跨日推进直至全部歌单覆盖;歌单本身不轮转、不被清理。
+    const SYNC_WINDOW_MS = 11000;        // 每批干活预算(留 ~4s 收尾,防沙箱 15s 强杀)
+    const MAX_PLAYLISTS_PER_RUN = 15;    // 单批最多歌单数(兜底;预算通常先触顶)
+    const MAX_SONGS_PER_PLAYLIST = 2000; // 单歌单最多拉取歌曲(4 页×500,防超大歌单独占预算)
+    const BATCH_GATE_MS = 20 * 3600e3;   // 非 force:距上次批次 <20h 跳过(启动补跑+每日调度同日不双跑)
+    const LOCAL_POOL_LIMIT = 5000;       // 本地曲库池上限(10 页×500),池内 O(1) 匹配免逐曲搜索往返
+    /** 归一化:小写 + 去非字母数字/汉字(用于标题/艺人匹配键)。 */
+    const norm = (s) => String(s || "").toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, "");
     const extractSessionCookie = (raw) => {
       if (!raw) return null;
       for (const part of String(raw).split(";")) {
@@ -304,7 +313,7 @@ globalThis.__mfPlugin = {
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: "username=" + encodeURIComponent(user) + "&password=" + encodeURIComponent(pass),
           redirect: "manual",
-          timeout: 15000,
+          timeout: 10000,
         });
         const cookie = extractSessionCookie(getSetCookie(r));
         if (cookie) {
@@ -323,7 +332,7 @@ globalThis.__mfPlugin = {
       const doFetch = (ck) => {
         const h = {};
         if (ck) h["Cookie"] = "music_dl_session=" + ck;
-        return host.http(url, { method: "GET", headers: h, timeout: 20000 });
+        return host.http(url, { method: "GET", headers: h, timeout: 10000 });
       };
       // 后端无 auth 时 user_playlists 直接返回歌单;有 auth 时未带有效 Cookie 会 302 到登录页。
       const isLoginPage = (b) => /登录 music-dl|初始化管理员账号/.test(b || "");
@@ -344,27 +353,64 @@ globalThis.__mfPlugin = {
       const all = [];
       do {
         const qs = new URLSearchParams({ source, id, page: String(page), page_size: "500" });
-        const html = await httpText(root + "/music/playlist?" + qs.toString(), 30000);
+        const html = await httpText(root + "/music/playlist?" + qs.toString(), 12000);
         if (page === 1) {
           const m = totalRe.exec(html);
           if (m) total = parseInt(m[1], 10) || 0;
         }
         all.push(...parseSongCards(html));
         page++;
-      } while (total > 0 && all.length < total && page <= 50);
+      } while (total > 0 && all.length < total && all.length < MAX_SONGS_PER_PLAYLIST && page <= 50);
       return all;
     };
-    /** 本地曲库模糊匹配(与 ListenBrainz 插件同款打分),命中返回 songId。 */
-    async function matchLocal(title, artist) {
-      const norm = (s) => String(s || "").toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, "");
+    /** 一次性拉本地曲库子集(≤ LOCAL_POOL_LIMIT 首,分页 500/页),按归一化标题建索引,
+     *  池内 O(1) 匹配免去逐曲 host.songs.search 往返(单批几千首时是主要耗时)。 */
+    async function loadLocalPool() {
+      const pool = new Map(); // normTitle -> [{ id, artist(norm) }]
+      try {
+        for (let off = 0; off < LOCAL_POOL_LIMIT; off += 500) {
+          const page = await host.songs.list({ limit: 500, offset: off });
+          if (!Array.isArray(page) || !page.length) break;
+          for (const s of page) {
+            const t = norm(s.title);
+            if (!t) continue;
+            const arr = pool.get(t);
+            if (arr) arr.push({ id: s.id, artist: norm(s.artist) });
+            else pool.set(t, [{ id: s.id, artist: norm(s.artist) }]);
+          }
+          if (page.length < 500) break;
+        }
+        return pool.size ? pool : null;
+      } catch {
+        return null; // 拉池失败 → 退回逐曲搜索
+      }
+    }
+    /** 池内匹配:标题精确 + 艺人包含;命中返回 songId,否则 null。 */
+    function matchInPool(pool, title, artist) {
+      if (!pool) return null;
+      const t = norm(title);
+      if (!t) return null;
+      const cands = pool.get(t);
+      if (!cands || !cands.length) return null;
+      const a = norm(artist);
+      if (!a) return cands[0].id;
+      for (const cnd of cands) {
+        if (cnd.artist && (cnd.artist.includes(a) || a.includes(cnd.artist))) return cnd.id;
+      }
+      return cands[0].id; // 标题精确命中即返回(艺人差异不阻塞)
+    }
+    /** 本地曲库模糊匹配(与 ListenBrainz 插件同款打分),命中返回 songId。
+     *  cache 为调用内 Map(title|artist → id|null),去重跨歌单重复曲目。 */
+    async function matchLocal(title, artist, cache) {
+      const key = String(title || "") + "|" + String(artist || "");
+      if (cache.has(key)) return cache.get(key);
       const tNorm = norm(title);
-      if (!tNorm) return null;
+      if (!tNorm) { cache.set(key, null); return null; }
       const tryQuery = async (q) => {
         try { return (await host.songs.search(q, { limit: 10 })) || []; } catch { return []; }
       };
       let hits = await tryQuery([title, artist].filter(Boolean).join(" "));
       if (!hits.length) hits = await tryQuery(title);
-      if (!hits.length) return null;
       let best = null, bestScore = -1;
       for (const h of hits) {
         const hTitle = norm(h.title);
@@ -378,50 +424,55 @@ globalThis.__mfPlugin = {
         }
         if (score > bestScore) { bestScore = score; best = h; }
       }
-      return best && bestScore >= 60 ? best.id : null;
+      const id = best && bestScore >= 60 ? best.id : null;
+      cache.set(key, id);
+      return id;
     }
-    /** 每日私人歌单自动同步(路径 B):登录 → 拉各平台我的歌单 → upsert 持久歌单。
-     *  返回摘要串或 null(跳过/未配置)。永不抛错(调度器会 catch,手动刷新也需稳健)。 */
+    /** 每日私人歌单自动同步(路径 B,分批滚动):登录 → 按游标推进一批歌单 upsert。
+     *  进度存 host.storage(gmdlMineCursor) {srcIdx, plIdx, ts, done};单批在
+     *  SYNC_WINDOW_MS 预算 / MAX_PLAYLISTS_PER_RUN 上限内,超了就存档收尾,下次继续。
+     *  未命中本地的歌以外部占位写入,由后端 upsert 后自动触发的后台 auto-match
+     *  (主进程、不受沙箱 15s 限制)继续本地/在线补全为可播条目。返回摘要串或 null。 */
     async function syncMyPlaylists(opts) {
       const c = host.config || {};
       if (c.importMyPlaylists === false) return null;
       const user = String(c.username || "").trim();
       const pass = String(c.password || "").trim();
       if (!user || !pass) { host.log("未配置用户名/密码,跳过私人歌单同步"); return null; }
-      // 每日闸门(force 绕过):启动补跑/6h 维护/调度可能一日内多次触发,避免重复全量同步。
       const force = !!(opts && opts.force);
-      if (!force) {
-        const last = Number(await host.storage.get("gmdlMineLastSync")) || 0;
-        if (last && Date.now() - last < 20 * 3600e3) return null;
-      }
+      let cursor = null;
+      try { cursor = await host.storage.get("gmdlMineCursor"); } catch { /* 忽略 */ }
+      // 每日闸门(force 绕过):启动补跑+每日调度可能同日多次触发,避免重复推进同一批。
+      if (!force && cursor && cursor.ts && Date.now() - cursor.ts < BATCH_GATE_MS) return null;
       const cookie = await ensureLogin(c);
+      if (!cookie) { host.log("登录失败,本次跳过私人歌单同步"); return null; }
       const srcs = ((c.sources && c.sources.length) ? c.sources : PRIVATE_SOURCES).filter((s) => PRIVATE_SOURCES.includes(s));
+      if (!srcs.length) return null;
       const t0 = Date.now();
-      const BUDGET_MS = 12000; // 控制单次 runDailyJob 总耗时,避免超过沙箱 15s 调用配额
-      let total = 0;
-      for (const source of srcs) {
+      const matchCache = new Map(); // 调用内去重
+      const pool = await loadLocalPool(); // 池内匹配优先,池外回退逐曲搜索
+      let srcIdx = (cursor && !cursor.done ? Number(cursor.srcIdx) || 0 : 0);
+      let plIdx = (cursor && !cursor.done ? Number(cursor.plIdx) || 0 : 0);
+      let processed = 0;
+      let allDone = true;
+      for (; srcIdx < srcs.length; srcIdx++) {
+        const source = srcs[srcIdx];
         let pls = [];
         try { pls = await fetchUserPlaylists(c, source, cookie); }
         catch (e) { host.log("拉取我的歌单失败(" + source + "): " + (e && e.message ? e.message : e)); continue; }
-        for (const pl of pls) {
+        if (!pls.length) continue;
+        for (; plIdx < pls.length; plIdx++) {
+          if (Date.now() - t0 >= SYNC_WINDOW_MS || processed >= MAX_PLAYLISTS_PER_RUN) { allDone = false; break; }
+          const pl = pls[plIdx];
           try {
             const songs = await fetchPlaylistSongs(c, source, pl.id);
             const entries = [];
             const coverCandidates = [];
             for (const s of songs) {
-              // 1) 本地曲库优先匹配(快,且立即可播+封面正常)
-              const localId = await matchLocal(s.name, s.artist);
+              // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
+              const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
               if (localId) { entries.push({ songId: localId }); coverCandidates.push(localId); continue; }
-              // 2) 预算内才做在线补全(网络较慢);超预算的歌留作外部条目,由后台 auto-match 补匹配
-              let completedId = null;
-              if (Date.now() - t0 < BUDGET_MS) {
-                try {
-                  const res = await host.sources.complete({ artist: s.artist, title: s.name });
-                  if (res && res.songId) completedId = res.songId;
-                } catch (e2) { host.log("在线补全失败 " + s.name + ": " + (e2 && e2.message ? e2.message : e2)); }
-              }
-              if (completedId) { entries.push({ songId: completedId }); coverCandidates.push(completedId); continue; }
-              // 3) 都失败:外部占位(后台 auto-match 经 go-music-dl 补全为可播)
+              // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
               entries.push({
                 externalSongId: source + ":" + s.id,
                 externalTitle: s.name,
@@ -437,13 +488,21 @@ globalThis.__mfPlugin = {
               entries,
               coverSongId: coverCandidates[0] || null,
             });
-            total++;
+            processed++;
+            // 每成功一个即推进并持久化游标:即便本次被沙箱强杀,进度也不丢
+            try { await host.storage.set("gmdlMineCursor", { srcIdx, plIdx: plIdx + 1, done: false, ts: Date.now() }); } catch { /* 忽略 */ }
           } catch (e) { host.log("同步歌单失败 " + (pl.name || source) + ": " + (e && e.message ? e.message : e)); }
         }
+        if (!allDone) break;
+        plIdx = 0; // 本平台处理完,进入下一平台
       }
-      await host.storage.set("gmdlMineLastSync", Date.now());
-      if (total) host.log("已同步 " + total + " 个私人歌单");
-      return total ? ("私人歌单: " + total + " 个已同步") : null;
+      if (allDone) {
+        try { await host.storage.set("gmdlMineCursor", { srcIdx: 0, plIdx: 0, done: true, ts: Date.now() }); } catch { /* 忽略 */ }
+        host.log("私人歌单全部同步完成: " + processed + " 个");
+        return "私人歌单全部同步完成: " + processed + " 个";
+      }
+      host.log("私人歌单批次同步完成: 本次 " + processed + " 个(进度 src=" + srcIdx + "/" + srcs.length + " pl=" + plIdx + "),继续推进中");
+      return "批次完成: " + processed + " 个(继续推进中)";
     }
 
     return {
@@ -603,9 +662,11 @@ globalThis.__mfPlugin = {
         return null;
       },
 
-      // ===== 私人歌单每日同步(路径 B:持久不轮转) =====
+      // ===== 私人歌单每日同步(路径 B:持久不轮转,分批滚动) =====
       // 复用主项目既有「每日调度 + /v1/recommend/refresh?pluginId=go-music-dl 手动刷新」入口,
       // 无需改动主项目。歌单以固定 id(pl-gmdl-mine-<source>-<id>) upsert,持久存在、不参与轮转。
+      // 沙箱单次调用 15s 硬配额 → syncMyPlaylists 每次只推进一批(预算/数量双闸),进度存
+      // gmdlMineCursor 跨日滚动覆盖全部歌单;手动刷新(force)可立即推进下一批。
       async runDailyJob(opts) {
         try {
           return await syncMyPlaylists(opts || {});

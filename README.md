@@ -19,7 +19,7 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| [`go-music-dl`](plugins/go-music-dl) | 1.2.7 | source | 在线源三合一（搜索匹配 / 歌词 / 封面）：对接自建 go-music-dl 服务，为歌单未匹配曲目提供在线补全、播放时单曲匹配，并为本地库补歌词/封面。配置页填**后台用户名/密码**并启用后，插件每日自动登录，把各平台**我的私人歌单**（网易云/QQ/酷狗/汽水的我喜欢的/收藏）以**路径 B 持久本地歌单**（`pl-gmdl-mine-<平台>-<歌单id>`，不轮转、不被每日清理）同步到本地，**歌单内歌曲每日自动刷新**（本地优先匹配、缺失经在线补全，后台再补 auto-match）。每日调度自动触发，也可 `POST /rest/api/v1/recommend/refresh {"pluginId":"go-music-dl"}` 手动刷新。不部署该服务则无需安装 |
+| [`go-music-dl`](plugins/go-music-dl) | 1.2.8 | source | 在线源三合一（搜索匹配 / 歌词 / 封面）：对接自建 go-music-dl 服务，为歌单未匹配曲目提供在线补全、播放时单曲匹配，并为本地库补歌词/封面。配置页填**后台用户名/密码**并启用后，插件每日自动登录，把各平台**我的私人歌单**（网易云/QQ/酷狗/汽水）以**路径 B 持久本地歌单**（`pl-gmdl-mine-<平台>-<歌单id>`，不轮转、不被清理）**分批滚动**同步到本地：受沙箱 15s 单次调用配额限制，每次推进一批（进度持久化、跨日覆盖全部歌单），歌单内歌曲自动刷新为可播条目（本地曲库池优先匹配、未命中的由后台 auto-match 补全）。每日调度自动推进，也可 `POST /rest/api/v1/recommend/refresh {"pluginId":"go-music-dl"}` 手动强制推进一批。不部署该服务则无需安装 |
 | [`listenbrainz`](plugins/listenbrainz) | 1.5.3 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。v1.5.3：换名优先用「收听历史 + LB 元数据」（直连可达、不依赖 MB），MusicBrainz 仅兜底且带重试/预算/快速降级；配置页新增「走系统网络代理」开关（需后端 1.7.38+）与「排除已听过的推荐」开关。不用这类服务的话无需安装 |
 | [`lastfm`](plugins/lastfm) | 1.0.1 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [Last.fm](https://www.last.fm)（MD5 签名鉴权），并按收听数据组装「Last.fm 推荐」歌单（Top 多周期 + 喜欢的歌 + 相似艺人，可固定首页、每日调度 + 手动刷新，本地/在线源补全）。需要申请 Last.fm API Key 并在浏览器授权一次拿 Session Key（插件配置页各输入框下方已附「获取链接」，可一键跳到申请 / 授权页）。不用这类服务的话无需安装 |
 

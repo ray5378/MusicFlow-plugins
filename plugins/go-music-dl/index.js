@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.11",
+    version: "1.2.12",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -45,8 +45,8 @@ globalThis.__mfPlugin = {
     defaultEnabled: false,
     minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
     // 方法级长耗时预算(毫秒):拉平台歌单/外网操作极慢,声明后沙箱按此预算而非默认 15s。
-    // runDailyJob:每日全量同步私人歌单(上限 4 分钟);playlistSongs:浏览远程歌单逐页拉取(60s)。
-    longRunning: { runDailyJob: 240000, playlistSongs: 60000 },
+    // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s)。
+    longRunning: { runDailyJob: 600000, playlistSongs: 60000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -278,9 +278,10 @@ globalThis.__mfPlugin = {
     // host.storage(gmdlMineCursor),跨日推进直至全部歌单覆盖;歌单本身不轮转、不被清理。
     // v1.2.9:主项目支持 manifest.longRunning 方法级预算(runDailyJob=240s),单次任务
     // 预算足以全量同步,故放宽窗口与数量上限;游标与预算闸仍保留,防挂起/中断丢进度。
-    const SYNC_WINDOW_MS = 200000;       // 每批干活预算(配合 longRunning 240s 调用配额)
+    const SYNC_WINDOW_MS = 500000;       // 每批干活预算(配合 longRunning 600s 调用配额,留 100s 收尾)
     const MAX_PLAYLISTS_PER_RUN = 100;   // 单批最多歌单数(兜底;预算通常先触顶)
     const MAX_SONGS_PER_PLAYLIST = 2000; // 单歌单最多拉取歌曲(4 页×500,防超大歌单独占预算)
+    const PREFETCH_CONCURRENCY = 6;      // 窗口并行拉取歌单歌曲的并发数(歌单互相独立,提速 ~6 倍)
     const BATCH_GATE_MS = 20 * 3600e3;   // 非 force:距上次批次 <20h 跳过(启动补跑+每日调度同日不双跑)
     const LOCAL_POOL_LIMIT = 5000;       // 本地曲库池上限(10 页×500),池内 O(1) 匹配免逐曲搜索往返
     /** 归一化:小写 + 去非字母数字/汉字(用于标题/艺人匹配键)。 */
@@ -481,40 +482,52 @@ globalThis.__mfPlugin = {
         try { pls = await fetchUserPlaylists(c, source, cookie); }
         catch (e) { host.log("拉取我的歌单失败(" + source + "): " + (e && e.message ? e.message : e)); continue; }
         if (!pls.length) continue;
-        for (; plIdx < pls.length; plIdx++) {
+        // 窗口并行预取:歌单歌曲拉取互相独立,并发 PREFETCH_CONCURRENCY 个大幅提速
+        // (串行 40+ 歌单 × 每单多页会轻易打爆调用配额——见「执行超时(> 240000ms)」事故)。
+        // 窗口边界检查预算;窗口内并行拉取后逐个匹配/upsert(DB 写保持串行安全),
+        // 游标逐歌单推进,中断可续传。
+        while (plIdx < pls.length) {
           if (Date.now() - t0 >= SYNC_WINDOW_MS || processed >= MAX_PLAYLISTS_PER_RUN) { allDone = false; break; }
-          const pl = pls[plIdx];
-          try {
-            const songs = await fetchPlaylistSongs(c, source, pl.id);
-            const entries = [];
-            const coverCandidates = [];
-            for (const s of songs) {
-              // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
-              const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
-              if (localId) { entries.push({ songId: localId }); coverCandidates.push(localId); continue; }
-              // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
-              entries.push({
-                externalSongId: source + ":" + s.id,
-                externalTitle: s.name,
-                externalArtist: s.artist,
-                externalAlbum: s.album,
-                externalDuration: (s.duration || 0) * 1000, // 秒 → 毫秒
+          const window = pls.slice(plIdx, plIdx + PREFETCH_CONCURRENCY);
+          const fetched = await Promise.all(window.map((pl) =>
+            fetchPlaylistSongs(c, source, pl.id)
+              .then((songs) => ({ pl, songs }))
+              .catch((e) => ({ pl, error: (e && e.message) || e }))
+          ));
+          for (const f of fetched) {
+            if (f.error) { host.log("拉取歌单歌曲失败 " + (f.pl.name || source) + ": " + f.error); plIdx++; continue; }
+            try {
+              const entries = [];
+              const coverCandidates = [];
+              for (const s of f.songs) {
+                // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
+                const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
+                if (localId) { entries.push({ songId: localId }); coverCandidates.push(localId); continue; }
+                // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
+                entries.push({
+                  externalSongId: source + ":" + s.id,
+                  externalTitle: s.name,
+                  externalArtist: s.artist,
+                  externalAlbum: s.album,
+                  externalDuration: (s.duration || 0) * 1000, // 秒 → 毫秒
+                });
+              }
+              const pid = "pl-gmdl-mine-" + source + "-" + f.pl.id;
+              await host.playlists.upsert(pid, {
+                name: labelOf(source) + " · " + (f.pl.name || "我的歌单"),
+                description: "go-music-dl 我的私人歌单(" + labelOf(source) + "),每日自动同步",
+                entries,
+                coverSongId: coverCandidates[0] || null,
+                // 平台标签:前端据此显示平台徽标(网易云/QQ/酷狗/汽水);sourceUrl 标识来源。
+                sourcePlatform: source,
+                sourceUrl: "gmdl://mine/" + source + "/" + f.pl.id,
               });
-            }
-            const pid = "pl-gmdl-mine-" + source + "-" + pl.id;
-            await host.playlists.upsert(pid, {
-              name: labelOf(source) + " · " + (pl.name || "我的歌单"),
-              description: "go-music-dl 我的私人歌单(" + labelOf(source) + "),每日自动同步",
-              entries,
-              coverSongId: coverCandidates[0] || null,
-              // 平台标签:前端据此显示平台徽标(网易云/QQ/酷狗/汽水);sourceUrl 标识来源。
-              sourcePlatform: source,
-              sourceUrl: "gmdl://mine/" + source + "/" + pl.id,
-            });
-            processed++;
-            // 每成功一个即推进并持久化游标:即便本次被沙箱强杀,进度也不丢
-            try { await host.storage.set("gmdlMineCursor", { srcIdx, plIdx: plIdx + 1, done: false, ts: Date.now() }); } catch { /* 忽略 */ }
-          } catch (e) { host.log("同步歌单失败 " + (pl.name || source) + ": " + (e && e.message ? e.message : e)); }
+              processed++;
+              // 每成功一个即推进并持久化游标:即便本次被沙箱强杀,进度也不丢
+              try { await host.storage.set("gmdlMineCursor", { srcIdx, plIdx: plIdx + 1, done: false, ts: Date.now() }); } catch { /* 忽略 */ }
+            } catch (e) { host.log("同步歌单失败 " + (f.pl.name || source) + ": " + (e && e.message ? e.message : e)); }
+            plIdx++;
+          }
         }
         if (!allDone) break;
         plIdx = 0; // 本平台处理完,进入下一平台

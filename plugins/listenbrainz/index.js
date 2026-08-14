@@ -28,13 +28,15 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.4",
+    version: "1.5.5",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;在线补全带 10s 预算闸,超预算的歌留外部占位交由后台 auto-match 补全,保证单次调用在沙箱 15s 配额内)。运行于 QuickJS 沙箱。",
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;经 manifest.longRunning 声明长耗时预算,配合后端异步任务通道一次任务即可完成生成)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
-    minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
+    minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
+    // 方法级长耗时预算:拉取 listenbrainz.org(外网)推荐 + MusicBrainz 兜底,声明 120s。
+    longRunning: { runDailyJob: 120000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -515,13 +517,12 @@ globalThis.__mfPlugin = {
       const entries = [];
       const coverCandidates = [];
       let externalCount = 0;
-      // 在线补全预算闸:沙箱单次调用 15s 硬配额,而在线源(go-music-dl)搜索可能很慢
-      // (默认多平台逐平台查,单曲 1~3s)。不设闸的话,推荐里几十首本地缺失的歌会把
-      // 整个 runDailyJob 拖超时被宿主强杀(手动刷新报 500、歌单生成失败)。
-      // 超预算的歌改外部占位,由 upsert 后自动触发的后台 auto-match(主进程、不受
-      // 15s 限制)继续补全为可播条目 → 零质量损失且保证本调用按时返回。
+      // 在线补全预算闸:在线源(go-music-dl)搜索可能很慢(默认多平台逐平台查,单曲 1~3s)。
+      // 配合 manifest.longRunning(runDailyJob=120s)+ 后端异步任务通道,单次任务预算内
+      // 尽量把在线补全做完;仍超预算的歌改外部占位,由 upsert 后自动触发的后台
+      // auto-match(主进程、不受限)继续补全为可播条目 → 零质量损失且本调用按时返回。
       const t0 = Date.now();
-      const COMPLETE_BUDGET_MS = 10000;
+      const COMPLETE_BUDGET_MS = 90000;
       for (const m of meta) {
         // 1) 本地曲库匹配
         const localId = await matchLocal(m.title, m.artist);

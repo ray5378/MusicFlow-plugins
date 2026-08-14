@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.8",
+    version: "1.2.9",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**分批滚动同步到本地(不轮转、不被清理;受沙箱 15s 单次调用配额限制,每次推进一批、进度持久化,跨日覆盖全部歌单,歌单内歌曲自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步,歌单内歌曲自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -43,7 +43,10 @@ globalThis.__mfPlugin = {
     },
     sourcePreference: ["netease", "kuwo", "kugou", "qq"],
     defaultEnabled: false,
-    minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
+    minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
+    // 方法级长耗时预算(毫秒):拉平台歌单/外网操作极慢,声明后沙箱按此预算而非默认 15s。
+    // runDailyJob:每日全量同步私人歌单(上限 4 分钟);playlistSongs:浏览远程歌单逐页拉取(60s)。
+    longRunning: { runDailyJob: 240000, playlistSongs: 60000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -273,8 +276,10 @@ globalThis.__mfPlugin = {
     const labelOf = (src) => PRIVATE_LABELS[src] || src;
     // 沙箱单次调用 15s 硬配额 → 分批滚动同步:每次只处理一个批次,进度持久化到
     // host.storage(gmdlMineCursor),跨日推进直至全部歌单覆盖;歌单本身不轮转、不被清理。
-    const SYNC_WINDOW_MS = 11000;        // 每批干活预算(留 ~4s 收尾,防沙箱 15s 强杀)
-    const MAX_PLAYLISTS_PER_RUN = 15;    // 单批最多歌单数(兜底;预算通常先触顶)
+    // v1.2.9:主项目支持 manifest.longRunning 方法级预算(runDailyJob=240s),单次任务
+    // 预算足以全量同步,故放宽窗口与数量上限;游标与预算闸仍保留,防挂起/中断丢进度。
+    const SYNC_WINDOW_MS = 200000;       // 每批干活预算(配合 longRunning 240s 调用配额)
+    const MAX_PLAYLISTS_PER_RUN = 100;   // 单批最多歌单数(兜底;预算通常先触顶)
     const MAX_SONGS_PER_PLAYLIST = 2000; // 单歌单最多拉取歌曲(4 页×500,防超大歌单独占预算)
     const BATCH_GATE_MS = 20 * 3600e3;   // 非 force:距上次批次 <20h 跳过(启动补跑+每日调度同日不双跑)
     const LOCAL_POOL_LIMIT = 5000;       // 本地曲库池上限(10 页×500),池内 O(1) 匹配免逐曲搜索往返
@@ -353,7 +358,7 @@ globalThis.__mfPlugin = {
       const all = [];
       do {
         const qs = new URLSearchParams({ source, id, page: String(page), page_size: "500" });
-        const html = await httpText(root + "/music/playlist?" + qs.toString(), 12000);
+        const html = await httpText(root + "/music/playlist?" + qs.toString(), 30000);
         if (page === 1) {
           const m = totalRe.exec(html);
           if (m) total = parseInt(m[1], 10) || 0;

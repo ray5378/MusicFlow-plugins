@@ -27,13 +27,13 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.4.0",
+    version: "1.5.0",
     type: "scrobbler",
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(艺人/专辑经 MusicBrainz 补全)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
-    minAppVersion: "1.7.25", // host.playlists / host.sources 自 1.7.24 起可用;recommendPlaylist 能力自 1.7.25 起识别
+    minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -473,6 +473,28 @@ globalThis.__mfPlugin = {
         } catch (e) {
           host.log("推荐歌单生成失败: " + (e.message || e));
           return null;
+        }
+      },
+
+      // ===== 健康自检(可选钩子,供 /v1/plugins/health 主动 ping) =====
+      async health() {
+        const c = cfg();
+        const username = String(c.username || "").trim();
+        const token = String(c.userToken || "").trim();
+        if (!username || !token) {
+          return { status: "degraded", message: "未配置用户名或 Token" };
+        }
+        const base = apiBase();
+        try {
+          const r = await host.http(base + "/1/", {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            timeout: 10000,
+          });
+          if (r && r.ok) return { status: "ok", message: "API 可达" };
+          return { status: "down", message: "API 返回 HTTP " + (r && r.status) };
+        } catch (e) {
+          return { status: "down", message: String((e && e.message) || e) };
         }
       },
     };

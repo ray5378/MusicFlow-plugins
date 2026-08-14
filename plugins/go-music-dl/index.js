@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.4",
+    version: "1.2.5",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -42,7 +42,7 @@ globalThis.__mfPlugin = {
     },
     sourcePreference: ["netease", "kuwo", "kugou", "qq"],
     defaultEnabled: false,
-    minAppVersion: "1.3.0", // 沙箱运行时自 v1.3.0 起
+    minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
     permissions: ["net"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -228,6 +228,21 @@ globalThis.__mfPlugin = {
           return { success: true, message: "连接成功" };
         } catch (e) {
           return { success: false, message: String((e && e.message) || e) };
+        }
+      },
+
+      // ===== 健康自检(可选钩子,供 /v1/plugins/health 主动 ping) =====
+      async health() {
+        const base = baseOf(host.config || {});
+        if (!base) return { status: "degraded", message: "未配置 go-music-dl 地址" };
+        try {
+          const html = await httpText(base + "/music/?type=song&sources=netease", 8000);
+          if (!html.includes("music-dl") && !html.includes("聚合搜索")) {
+            return { status: "down", message: "响应不是 go-music-dl 页面(地址可能指向了其他服务)" };
+          }
+          return { status: "ok", message: "服务可达" };
+        } catch (e) {
+          return { status: "down", message: String((e && e.message) || e) };
         }
       },
 

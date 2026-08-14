@@ -12,21 +12,20 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 > 本仓库的插件通过 V2「插件」页的市场一键安装，**不需要手动下载/解压**。
 
 > 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
-> 仍随后端内置，开箱即用。**go-music-dl 三合一（源 / 歌词 / 封面）自 V2 1.3.0 起改回内置**——
-> 不再随后端外置分发，也不再出现在本市场，配置方式不变（「已安装」里填 `baseUrl` 并启用）。
+> 仍随后端内置，开箱即用。**go-music-dl（源 / 歌词 / 封面三合一）是外置插件**——自本仓库
+> 分发、市场一键安装，配置方式为「已安装」里填 `baseUrl` 并启用。
 
 ## 当前托管的插件
 
 | 插件 | 版本 | 类型 | 说明 |
 | --- | --- | --- | --- |
-| [`listenbrainz`](plugins/listenbrainz) | 1.4.0 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。不用这类服务的话无需安装 |
+| [`go-music-dl`](plugins/go-music-dl) | 1.2.5 | source | 在线源三合一（搜索匹配 / 歌词 / 封面）：对接自建 go-music-dl 服务，为歌单未匹配曲目提供在线补全、播放时单曲匹配，并为本地库补歌词/封面。不部署该服务则无需安装 |
+| [`listenbrainz`](plugins/listenbrainz) | 1.5.0 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。不用这类服务的话无需安装 |
 
 > 插件运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
 
-> 历史：go-music-dl 曾作为外置插件（1.2.x）分发自本仓库；自 V2 1.3.0 起合并为内置
-> source 插件（`goMusicDlBuiltin.ts`，capabilities 含 lyricProvider/coverProvider），
-> 随镜像发行。若你的环境里残留外置版本的 `data/plugins/go-music-dl` 目录，可删除（内置
-> 插件优先注册，同名外置会被自动跳过）。
+> 历史：go-music-dl 曾在早期版本随后端内置，V2 插件化改造后外置化，并合并为**单插件多能力**
+> （source 的 capabilities 含 lyricProvider/coverProvider），随本仓库分发。
 
 ## 在 MusicFlow V2 中安装
 

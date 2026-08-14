@@ -27,6 +27,7 @@ const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cov
 const VALID_CAPS = [
   "search", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
+  "recommendPlaylist",
   "playlistSync", "autoMatch",
   "lyricProvider", "coverProvider", "renderer", "scrobbler",
   "artistInfo",
@@ -56,6 +57,7 @@ const CAP_METHODS = {
   playlistFile: ["canHandleFile", "parseFile"],
   dailyPlaylist: ["runDailyJob"],
   localPlaylist: ["runDailyJob"],
+  recommendPlaylist: ["runDailyJob"],
   playlistSync: ["runSyncJob"],
   // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
 };
@@ -180,13 +182,22 @@ async function checkOne(id) {
 
   // 反向提醒：impl 有方法却没声明对应能力 → 核心永不会调用它（静默失效）
   const declared = new Set(manifest.capabilities || []);
+  // 多个能力可能共享同一组方法(如 dailyPlaylist / localPlaylist / recommendPlaylist
+  // 都要求 runDailyJob)——只要已声明其中一个,不再对同方法集的能力发反向提醒。
+  const declaredMethodKeys = new Set();
+  for (const cap of declared) {
+    const need = CAP_METHODS[cap];
+    const fns = need ? (Array.isArray(need) ? need : need.anyOf) : null;
+    if (fns && fns.length) declaredMethodKeys.add([...fns].sort().join(","));
+  }
   for (const [cap, need] of Object.entries(CAP_METHODS)) {
     if (declared.has(cap)) continue;
     const fns = Array.isArray(need) ? need : need.anyOf;
     // search 同时对应 search / autoMatch 两种能力，声明任一即可，避免误报
     if (cap === "autoMatch" && declared.has("search")) continue;
     if (cap === "search" && declared.has("autoMatch")) continue;
-    if (fns.every((fn) => typeof impl[fn] === "function")) {
+    if (fns && fns.length && declaredMethodKeys.has([...fns].sort().join(","))) continue;
+    if (fns && fns.every((fn) => typeof impl[fn] === "function")) {
       warn(id, `impl 提供了 ${fns.join("/")}() 但未声明能力 ${cap},核心不会调用它`);
     }
   }

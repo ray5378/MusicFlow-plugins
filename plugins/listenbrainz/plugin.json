@@ -1,15 +1,15 @@
 {
   "id": "listenbrainz",
   "name": "ListenBrainz 播放记录 + 推荐",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "scrobbler",
-  "description": "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz 推荐」合并歌单。运行于 QuickJS 沙箱。",
+  "description": "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单。运行于 QuickJS 沙箱。",
   "capabilities": [
     "scrobbler",
-    "dailyPlaylist"
+    "recommendPlaylist"
   ],
   "defaultEnabled": false,
-  "minAppVersion": "1.7.24",
+  "minAppVersion": "1.7.25",
   "permissions": [
     "net",
     "storage",
@@ -21,7 +21,7 @@
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
   "downloadUrl": "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/listenbrainz.tar.gz",
   "homePlaylistId": "pl-lb-recommend",
-  "documentation": "### 功能介绍\n双功能官方插件：\n1. **播放记录上报（scrobbler）**：把 MusicFlow 的播放事件上报到 ListenBrainz（开始播放上报「正在播放」，播放达标上报正式收听），计入听歌统计；支持指向自建实例。\n2. **推荐歌单（recommender）**：每天按 ListenBrainz 协同过滤推荐，生成一张固定合并歌单「ListenBrainz 推荐」（id：`pl-lb-recommend`）。推荐 MBID 经元数据接口换出曲名/艺人后，先在本曲库匹配为可播条目；匹配不到的经已启用的在线源（go-music-dl 等）补全为可播条目；都没有则保留为外部占位（仅展示）。\n\n### 处理逻辑\n1. 核心按 `scrobbler` 能力在播放开始/达标时调用 `onPlay` / `onScrobble`；\n2. 核心按 `dailyPlaylist` 能力每日调度调用 `runDailyJob`：间隔闸门（默认 1 天，未到则跳过）→ 拉取 `top`/`similar`/`raw` 协同过滤推荐 → 元数据换名 → 本地匹配 / 在线补全 / 外部占位 → 写入固定歌单并随机取一张有封面的曲目作封面；\n3. **手动刷新**：在插件设置页点「刷新」或在 `/v1/recommend/refresh` 传 `pluginId: \"listenbrainz\"`，会以 `force` 绕过间隔闸门强制重生成。\n\n### 沙箱说明\n运行在 QuickJS 虚拟机内：网络经 `host.http`，曲库匹配经 `host.songs.search`，在线补全经 `host.sources.complete`，写歌单经 `host.playlists.upsert`，间隔状态经 `host.storage`。所需权限：`net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。\n\n### 配置\n- `username`（必填）：用于拉取推荐歌单的 ListenBrainz 用户名；\n- `playlistModes`：拉取哪些协同过滤推荐（`top` 常听艺人 / `similar` 相似艺人 / `raw` 原始模型，可多选）；\n- `perModeCount`：每种类型拉取的候选曲目数（1~100，默认 25）；\n- `refreshIntervalDays`：刷新间隔天数（默认 1，每日调度未到间隔会跳过）；\n- `showOnHome` / `homePosition`：是否及在第几位把歌单固定在首页顶部；\n- `userToken`（必填）：上报播放记录用的个人访问令牌（https://listenbrainz.org/settings/）；\n- `apiUrl`：官方实例留默认；自建 ListenBrainz 填你的地址；\n- `submitPlayingNow`：是否上报「正在播放」实时状态；\n- `minDuration`：正式记录的最短播放时长（秒）。",
+  "documentation": "### 功能介绍\n双功能官方插件：\n1. **播放记录上报（scrobbler）**：把 MusicFlow 的播放事件上报到 ListenBrainz（开始播放上报「正在播放」，播放达标上报正式收听），计入听歌统计；支持指向自建实例。\n2. **推荐歌单（recommendPlaylist）**：每天按 ListenBrainz 协同过滤推荐，生成一张固定歌单「ListenBrainz」（id：`pl-lb-recommend`）。推荐 MBID 经元数据接口换出曲名/艺人后，先在本曲库匹配为可播条目；匹配不到的经已启用的在线源（go-music-dl 等）补全为可播条目；都没有则保留为外部占位（仅展示）。\n\n### 处理逻辑\n1. 核心按 `scrobbler` 能力在播放开始/达标时调用 `onPlay` / `onScrobble`；\n2. 核心按 `recommendPlaylist` 能力每日调度调用 `runDailyJob`：间隔闸门（默认 1 天，未到则跳过）→ 拉取 `top`/`similar`/`raw` 协同过滤推荐 → 元数据换名 → 本地匹配 / 在线补全 / 外部占位 → 写入固定歌单（封面取第一首有封面的曲目，宿主兜底自动扫描）；\n3. **手动刷新**：在插件设置页点「立即刷新」或在 `/v1/recommend/refresh` 传 `pluginId: \"listenbrainz\"`，会以 `force` 绕过间隔闸门强制重生成该插件自己的歌单。",
   "configSchema": [
     {
       "key": "username",
@@ -34,11 +34,23 @@
       "key": "playlistModes",
       "label": "推荐类型",
       "type": "multi-select",
-      "default": ["top", "similar"],
+      "default": [
+        "top",
+        "similar"
+      ],
       "options": [
-        { "value": "top", "label": "常听艺人" },
-        { "value": "similar", "label": "相似艺人" },
-        { "value": "raw", "label": "原始模型" }
+        {
+          "value": "top",
+          "label": "常听艺人"
+        },
+        {
+          "value": "similar",
+          "label": "相似艺人"
+        },
+        {
+          "value": "raw",
+          "label": "原始模型"
+        }
       ],
       "help": "拉取哪些协同过滤推荐(可多选);合并去重后生成一张歌单"
     },
@@ -61,7 +73,7 @@
       "label": "在首页显示",
       "type": "switch",
       "default": false,
-      "help": "是否把「ListenBrainz 推荐」歌单固定在首页顶部展示(按下方位次排序)"
+      "help": "是否把「ListenBrainz」歌单固定在首页顶部展示(按下方位次排序)"
     },
     {
       "key": "homePosition",

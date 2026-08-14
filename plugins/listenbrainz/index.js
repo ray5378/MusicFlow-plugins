@@ -1,9 +1,9 @@
-// ==================== ListenBrainz 播放记录上报 + 推荐歌单（scrobbler + recommender） ====================
+// ==================== ListenBrainz 播放记录上报 + 推荐歌单（scrobbler + recommendPlaylist） ====================
 //
 // MusicFlow V2 官方外置插件。双功能:
 //   1) scrobbler:把播放事件上报到 ListenBrainz(或自建实例);
-//   2) recommender(dailyPlaylist):每天按「协同过滤推荐」拉取歌单,生成为一张
-//      固定合并歌单「ListenBrainz 推荐」(id: pl-lb-recommend)。无法匹配本地的
+//   2) recommendPlaylist:每天按「协同过滤推荐」拉取歌单,生成为一张
+//      固定合并歌单「ListenBrainz」(id: pl-lb-recommend)。无法匹配本地的
 //      曲目,经在线源(go-music-dl 等)补全为可播条目;都没有则保留为外部不可播条目。
 //
 // 沙箱契约(QuickJS VM 内运行,拿不到 Node 能力):
@@ -20,20 +20,20 @@
 //   onPlay(host, event)      — 开始播放 → 上报「正在播放」(playing_now)
 //   onScrobble(host, event)  — 播放超阈值 → 记一条正式收听(single)
 //
-// recommender 契约(见 backend/src/plugins/sandbox.ts CAP_METHODS):
-//   runDailyJob(opts)        — 每日调度(opts.force 时无视间隔闸门强制重生成)
+// recommendPlaylist 契约(见 backend/src/plugins/sandbox.ts CAP_METHODS):
+//   runDailyJob(opts)        — 每日调度 + 手动刷新(opts.force 时无视间隔闸门强制重生成)
 
 globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.2.0",
+    version: "1.3.0",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz 推荐」合并歌单。运行于 QuickJS 沙箱。",
-    capabilities: ["scrobbler", "dailyPlaylist"],
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单。运行于 QuickJS 沙箱。",
+    capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
-    minAppVersion: "1.7.24", // host.playlists / host.sources 自该版本起可用
+    minAppVersion: "1.7.25", // host.playlists / host.sources 自 1.7.24 起可用;recommendPlaylist 能力自 1.7.25 起识别
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -80,7 +80,7 @@ globalThis.__mfPlugin = {
         label: "在首页显示",
         type: "switch",
         default: false,
-        help: "是否把「ListenBrainz 推荐」歌单固定在首页顶部展示(按下方位次排序)",
+        help: "是否把「ListenBrainz」歌单固定在首页顶部展示(按下方位次排序)",
       },
       {
         key: "homePosition",
@@ -367,14 +367,14 @@ globalThis.__mfPlugin = {
       }
 
       await host.playlists.upsert(REC_PLAYLIST_ID, {
-        name: "ListenBrainz 推荐",
+        name: "ListenBrainz",
         description: "由 ListenBrainz 协同过滤推荐生成(每日更新,本地缺失的经在线源补全)",
         entries,
         coverSongId: coverCandidates[0] || null,
       });
       await host.storage.set("lastRun", Date.now());
-      host.log(`已生成「ListenBrainz 推荐」共 ${entries.length} 首(其中外部占位 ${externalCount} 首)`);
-      return `ListenBrainz 推荐: ${entries.length} 首(外部 ${externalCount})`;
+      host.log(`已生成「ListenBrainz」共 ${entries.length} 首(其中外部占位 ${externalCount} 首)`);
+      return `ListenBrainz: ${entries.length} 首(外部 ${externalCount})`;
     }
 
     return {

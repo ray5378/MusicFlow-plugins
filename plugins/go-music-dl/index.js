@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.9",
+    version: "1.2.10",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步,歌单内歌曲自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步,歌单内歌曲自动刷新为可播条目)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -56,7 +56,7 @@ globalThis.__mfPlugin = {
       { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
       { key: "password", label: "登录密码", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
       { key: "importMyPlaylists", label: "同步我的私人歌单", type: "switch", default: true, help: "开启后,插件每日自动登录并分批滚动同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理;每次同步一个批次(沙箱 15s 配额内),进度持久化、跨日推进直至全部覆盖,歌单内歌曲自动刷新为可播条目(本地缺失的交由后台自动补全);关闭则只同步公开推荐" },
-      { key: "sources", label: "搜索平台", type: "multiselect", options: [
+      { key: "sources", label: "搜索平台", type: "multiselect", help: "搜索/匹配时使用的平台(未配置则默认国内 4 平台)。每次搜索自动按国内优先重排并最多取 5 个——避免全平台搜索(含 bilibili/JOOX/Apple 等外网)单次超时。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -285,6 +285,21 @@ globalThis.__mfPlugin = {
     const LOCAL_POOL_LIMIT = 5000;       // 本地曲库池上限(10 页×500),池内 O(1) 匹配免逐曲搜索往返
     /** 归一化:小写 + 去非字母数字/汉字(用于标题/艺人匹配键)。 */
     const norm = (s) => String(s || "").toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, "");
+    // search 平台选择:①调用方指定 → ②插件配置 sources → ③快速默认(国内 4 平台)。
+    // 关键:绝不「无 sources → go-music-dl 全平台搜索」——含 bilibili/joox/apple 等
+    // 外网平台,单次搜索 10s+,直接打爆沙箱 15s(交互搜索与后台 auto-match 双双超时,
+    // 日志见「调用 search() 执行超时(> 15000ms)」「host.http 失败 ... aborted due to timeout」)。
+    // 按国内优先顺序重排并截断至 ≤5,兼顾召回与速度。
+    const SEARCH_PREFERENCE = ["netease", "kuwo", "kugou", "qq"];
+    const FAST_DEFAULT_SOURCES = ["netease", "kugou", "qq", "kuwo"];
+    const MAX_SEARCH_SOURCES = 5;
+    function pickSearchSources(config, params) {
+      const fromParams = (params && Array.isArray(params.sources) ? params.sources : []).filter((s) => typeof s === "string" && s);
+      const fromCfg = Array.isArray(config && config.sources) ? config.sources.filter((s) => typeof s === "string" && s) : [];
+      const list = fromParams.length ? fromParams : fromCfg.length ? fromCfg : FAST_DEFAULT_SOURCES;
+      const score = (s) => { const i = SEARCH_PREFERENCE.indexOf(s); return i >= 0 ? i : SEARCH_PREFERENCE.length; };
+      return [...new Set(list)].sort((a, b) => score(a) - score(b)).slice(0, MAX_SEARCH_SOURCES);
+    }
     const extractSessionCookie = (raw) => {
       if (!raw) return null;
       for (const part of String(raw).split(";")) {
@@ -542,8 +557,8 @@ globalThis.__mfPlugin = {
 
       async search(config, params) {
         const qs = new URLSearchParams({ q: params.query, type: "song" });
-        for (const s of params.sources || []) qs.append("sources", s);
-        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 15000);
+        for (const s of pickSearchSources(config, params)) qs.append("sources", s);
+        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 12000);
         return { songs: parseSongCards(html) };
       },
 

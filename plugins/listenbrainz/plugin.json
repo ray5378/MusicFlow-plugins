@@ -1,9 +1,9 @@
 {
   "id": "listenbrainz",
   "name": "ListenBrainz 播放记录 + 推荐",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "type": "scrobbler",
-  "description": "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级)。运行于 QuickJS 沙箱。",
+  "description": "把播放记录上报到 ListenBrainz(开源的 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;在线补全带 10s 预算闸,超预算的歌留外部占位交由后台 auto-match 补全,保证单次调用在沙箱 15s 配额内)。运行于 QuickJS 沙箱。",
   "capabilities": [
     "scrobbler",
     "recommendPlaylist"
@@ -21,7 +21,7 @@
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
   "downloadUrl": "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/listenbrainz.tar.gz",
   "homePlaylistId": "pl-lb-recommend",
-  "documentation": "### 功能介绍\n双功能官方插件：\n1. **播放记录上报（scrobbler）**：把 MusicFlow 的播放事件上报到 ListenBrainz（开始播放上报「正在播放」，播放达标上报正式收听），计入听歌统计；支持指向自建实例。\n2. **推荐歌单（recommendPlaylist）**：每天按 ListenBrainz 协同过滤推荐，生成一张固定歌单「ListenBrainz」（id：`pl-lb-recommend`）。推荐 MBID 经元数据接口换出曲名后，艺人/专辑经 **MusicBrainz** 单曲接口补全（ListenBrainz metadata 不返回艺人信息）；先在本曲库匹配为可播条目；匹配不到的经已启用的在线源（go-music-dl 等）补全为可播条目；都没有则保留为外部占位（仅展示，含艺人/专辑）。\n\n### 处理逻辑\n1. 核心按 `scrobbler` 能力在播放开始/达标时调用 `onPlay` / `onScrobble`；\n2. 核心按 `recommendPlaylist` 能力每日调度调用 `runDailyJob`：间隔闸门（默认 1 天，未到则跳过）→ 拉取 `top`/`similar`/`raw` 协同过滤推荐 → LB 元数据换名 + MusicBrainz 补全艺人/专辑 → 本地匹配 / 在线补全 / 外部占位 → 写入固定歌单（封面取第一首有封面的曲目，宿主兜底自动扫描）；\n3. **手动刷新**：在插件设置页点「立即刷新」或在 `/v1/recommend/refresh` 传 `pluginId: \"listenbrainz\"`，会以 `force` 绕过间隔闸门强制重生成该插件自己的歌单。\n\n### 沙箱说明\n运行在 QuickJS 虚拟机内：网络经 `host.http`，曲库匹配经 `host.songs.search`，在线补全经 `host.sources.complete`，写歌单经 `host.playlists.upsert`，间隔状态经 `host.storage`。所需权限：`net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。MusicBrainz 请求带 User-Agent 并按 1 秒 1 次的限流节奏串行。\n\n### 健康自检\n实现了可选 `health()` 钩子：检查用户名/Token 是否配置，并轻量探测 API 可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s），未实现的插件显示「未监控」。",
+  "documentation": "### 功能介绍\n双功能官方插件：\n1. **播放记录上报（scrobbler）**：把 MusicFlow 的播放事件上报到 ListenBrainz（开始播放上报「正在播放」，播放达标上报正式收听），计入听歌统计；支持指向自建实例。\n2. **推荐歌单（recommendPlaylist）**：每天按 ListenBrainz 协同过滤推荐，生成一张固定歌单「ListenBrainz」（id：`pl-lb-recommend`）。推荐 MBID 经元数据接口换出曲名后，艺人/专辑经 **MusicBrainz** 单曲接口补全（ListenBrainz metadata 不返回艺人信息）；先在本曲库匹配为可播条目；匹配不到的经已启用的在线源（go-music-dl 等）补全为可播条目；都没有则保留为外部占位（仅展示，含艺人/专辑）。\n\n### 处理逻辑\n1. 核心按 `scrobbler` 能力在播放开始/达标时调用 `onPlay` / `onScrobble`；\n2. 核心按 `recommendPlaylist` 能力每日调度调用 `runDailyJob`：间隔闸门（默认 1 天，未到则跳过）→ 拉取 `top`/`similar`/`raw` 协同过滤推荐 → LB 元数据换名 + MusicBrainz 补全艺人/专辑 → 本地匹配 / 在线补全 / 外部占位 → 写入固定歌单（封面取第一首有封面的曲目，宿主兜底自动扫描）；\n3. **手动刷新**：在插件设置页点「立即刷新」或在 `/v1/recommend/refresh` 传 `pluginId: \"listenbrainz\"`，会以 `force` 绕过间隔闸门强制重生成该插件自己的歌单。\n\n### 在线补全预算闸（v1.5.4）\n沙箱单次调用有 15s 硬配额，而在线源（go-music-dl）搜索可能很慢（默认多平台逐平台查，单曲 1~3s）。v1.5.4 为「在线补全」加了 **10s 预算闸**：超预算的曲目不再占用沙箱时间，直接写为外部占位条目，由后端 upsert 后自动触发的后台 auto-match（主进程、不受 15s 限制）继续补全为可播条目——保证 `runDailyJob` 一定在 15s 内返回，歌单不再因超时生成失败。同时把 ListenBrainz API 请求超时从 20s 收紧到 10s，防外网慢拖死整体。\n\n### 沙箱说明\n运行在 QuickJS 虚拟机内：网络经 `host.http`，曲库匹配经 `host.songs.search`，在线补全经 `host.sources.complete`，写歌单经 `host.playlists.upsert`，间隔状态经 `host.storage`。所需权限：`net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。MusicBrainz 请求带 User-Agent 并按 1 秒 1 次的限流节奏串行。\n\n### 健康自检\n实现了可选 `health()` 钩子：检查用户名/Token 是否配置，并轻量探测 API 可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s），未实现的插件显示「未监控」。",
   "configSchema": [
     {
       "key": "username",

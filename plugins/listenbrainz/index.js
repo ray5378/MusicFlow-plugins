@@ -28,10 +28,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.3",
+    version: "1.5.4",
     type: "scrobbler",
     description:
-      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级)。运行于 QuickJS 沙箱。",
+      "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;在线补全带 10s 预算闸,超预算的歌留外部占位交由后台 auto-match 补全,保证单次调用在沙箱 15s 配额内)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.33", // health() 自检钩子需 1.7.33 沙箱透传
@@ -155,7 +155,7 @@ globalThis.__mfPlugin = {
 
     /** GET 一个 JSON 接口，返回解析后的对象；非 2xx 抛可读错误。 */
     async function httpGetJson(url) {
-      const r = await host.http(url, { method: "GET", headers: { Accept: "application/json" }, timeout: 20000, ...proxyFlag() });
+      const r = await host.http(url, { method: "GET", headers: { Accept: "application/json" }, timeout: 10000, ...proxyFlag() });
       if (!r.ok) {
         if (r.status === 204) return null; // 推荐尚未生成(空响应)
         let detail = "";
@@ -515,6 +515,13 @@ globalThis.__mfPlugin = {
       const entries = [];
       const coverCandidates = [];
       let externalCount = 0;
+      // 在线补全预算闸:沙箱单次调用 15s 硬配额,而在线源(go-music-dl)搜索可能很慢
+      // (默认多平台逐平台查,单曲 1~3s)。不设闸的话,推荐里几十首本地缺失的歌会把
+      // 整个 runDailyJob 拖超时被宿主强杀(手动刷新报 500、歌单生成失败)。
+      // 超预算的歌改外部占位,由 upsert 后自动触发的后台 auto-match(主进程、不受
+      // 15s 限制)继续补全为可播条目 → 零质量损失且保证本调用按时返回。
+      const t0 = Date.now();
+      const COMPLETE_BUDGET_MS = 10000;
       for (const m of meta) {
         // 1) 本地曲库匹配
         const localId = await matchLocal(m.title, m.artist);
@@ -523,18 +530,20 @@ globalThis.__mfPlugin = {
           coverCandidates.push(localId);
           continue;
         }
-        // 2) 在线源补全(go-music-dl 等已启用 source)
+        // 2) 预算内才做在线源补全(go-music-dl 等已启用 source);超预算直接走外部占位
         let completedId = null;
-        try {
-          const res = await host.sources.complete({ artist: m.artist, title: m.title });
-          if (res && res.songId) completedId = res.songId;
-        } catch (e) { host.log(`在线补全失败 ${m.title}: ${e.message}`); }
+        if (Date.now() - t0 < COMPLETE_BUDGET_MS) {
+          try {
+            const res = await host.sources.complete({ artist: m.artist, title: m.title });
+            if (res && res.songId) completedId = res.songId;
+          } catch (e) { host.log(`在线补全失败 ${m.title}: ${e.message}`); }
+        }
         if (completedId) {
           entries.push({ songId: completedId });
           coverCandidates.push(completedId);
           continue;
         }
-        // 3) 都失败:保留为外部不可播条目(仅展示用)
+        // 3) 都失败/超预算:保留为外部不可播条目(由后台 auto-match 补全为可播)
         externalCount++;
         entries.push({
           externalSongId: m.mbid,

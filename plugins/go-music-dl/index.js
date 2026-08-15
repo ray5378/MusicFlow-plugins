@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.12",
+    version: "1.2.13",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "recommend",
@@ -276,11 +276,11 @@ globalThis.__mfPlugin = {
     const labelOf = (src) => PRIVATE_LABELS[src] || src;
     // 沙箱单次调用 15s 硬配额 → 分批滚动同步:每次只处理一个批次,进度持久化到
     // host.storage(gmdlMineCursor),跨日推进直至全部歌单覆盖;歌单本身不轮转、不被清理。
-    // v1.2.9:主项目支持 manifest.longRunning 方法级预算(runDailyJob=240s),单次任务
-    // 预算足以全量同步,故放宽窗口与数量上限;游标与预算闸仍保留,防挂起/中断丢进度。
-    const SYNC_WINDOW_MS = 500000;       // 每批干活预算(配合 longRunning 600s 调用配额,留 100s 收尾)
-    const MAX_PLAYLISTS_PER_RUN = 100;   // 单批最多歌单数(兜底;预算通常先触顶)
-    const MAX_SONGS_PER_PLAYLIST = 2000; // 单歌单最多拉取歌曲(4 页×500,防超大歌单独占预算)
+    // v1.2.9+ 主项目支持 manifest.longRunning 方法级预算;v1.7.47 起主项目批量任务
+    // 改「软看门狗」:无墙钟硬超时(等网络/DB 无限合法,只杀 CPU 空转)→ 插件侧移除
+    // SYNC_WINDOW_MS / MAX_PLAYLISTS_PER_RUN 预算闸,一次任务跑完全部歌单(无限歌单/
+    // 封面/歌词)。游标仍保留:意外中断(网络断/进程重启)时可续传,不丢进度。
+    const MAX_SONGS_PER_PLAYLIST = 5000; // 单歌单最多拉取歌曲(10 页×500,防超大歌单独占内存)
     const PREFETCH_CONCURRENCY = 6;      // 窗口并行拉取歌单歌曲的并发数(歌单互相独立,提速 ~6 倍)
     const BATCH_GATE_MS = 20 * 3600e3;   // 非 force:距上次批次 <20h 跳过(启动补跑+每日调度同日不双跑)
     const LOCAL_POOL_LIMIT = 5000;       // 本地曲库池上限(10 页×500),池内 O(1) 匹配免逐曲搜索往返
@@ -484,10 +484,9 @@ globalThis.__mfPlugin = {
         if (!pls.length) continue;
         // 窗口并行预取:歌单歌曲拉取互相独立,并发 PREFETCH_CONCURRENCY 个大幅提速
         // (串行 40+ 歌单 × 每单多页会轻易打爆调用配额——见「执行超时(> 240000ms)」事故)。
-        // 窗口边界检查预算;窗口内并行拉取后逐个匹配/upsert(DB 写保持串行安全),
-        // 游标逐歌单推进,中断可续传。
+        // v1.7.47 起批量任务无墙钟(软看门狗只杀 CPU 空转)→ 不再按预算截断,
+        // 一次跑完全部歌单(无限歌单/封面/歌词);游标仍逐歌单推进,意外中断可续传。
         while (plIdx < pls.length) {
-          if (Date.now() - t0 >= SYNC_WINDOW_MS || processed >= MAX_PLAYLISTS_PER_RUN) { allDone = false; break; }
           const window = pls.slice(plIdx, plIdx + PREFETCH_CONCURRENCY);
           const fetched = await Promise.all(window.map((pl) =>
             fetchPlaylistSongs(c, source, pl.id)

@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.5",
+    version: "1.5.6",
     type: "scrobbler",
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;经 manifest.longRunning 声明长耗时预算,配合后端异步任务通道一次任务即可完成生成)。运行于 QuickJS 沙箱。",
@@ -517,12 +517,10 @@ globalThis.__mfPlugin = {
       const entries = [];
       const coverCandidates = [];
       let externalCount = 0;
-      // 在线补全预算闸:在线源(go-music-dl)搜索可能很慢(默认多平台逐平台查,单曲 1~3s)。
-      // 配合 manifest.longRunning(runDailyJob=120s)+ 后端异步任务通道,单次任务预算内
-      // 尽量把在线补全做完;仍超预算的歌改外部占位,由 upsert 后自动触发的后台
-      // auto-match(主进程、不受限)继续补全为可播条目 → 零质量损失且本调用按时返回。
-      const t0 = Date.now();
-      const COMPLETE_BUDGET_MS = 90000;
+      // 在线补全:配合 manifest.longRunning + 主项目 v1.7.47 软看门狗(批量任务无墙钟,
+      // 等网络/DB 无限合法)→ 不再设预算闸,一次任务尽量把所有推荐歌在线补全完
+      // (无限封面/歌词);仍失败的歌改外部占位,由 upsert 后自动触发的后台
+      // auto-match(主进程)继续补全为可播条目 → 零质量损失。
       for (const m of meta) {
         // 1) 本地曲库匹配
         const localId = await matchLocal(m.title, m.artist);
@@ -531,14 +529,12 @@ globalThis.__mfPlugin = {
           coverCandidates.push(localId);
           continue;
         }
-        // 2) 预算内才做在线源补全(go-music-dl 等已启用 source);超预算直接走外部占位
+        // 2) 在线源补全(go-music-dl 等已启用 source);失败走外部占位
         let completedId = null;
-        if (Date.now() - t0 < COMPLETE_BUDGET_MS) {
-          try {
-            const res = await host.sources.complete({ artist: m.artist, title: m.title });
-            if (res && res.songId) completedId = res.songId;
-          } catch (e) { host.log(`在线补全失败 ${m.title}: ${e.message}`); }
-        }
+        try {
+          const res = await host.sources.complete({ artist: m.artist, title: m.title });
+          if (res && res.songId) completedId = res.songId;
+        } catch (e) { host.log(`在线补全失败 ${m.title}: ${e.message}`); }
         if (completedId) {
           entries.push({ songId: completedId });
           coverCandidates.push(completedId);

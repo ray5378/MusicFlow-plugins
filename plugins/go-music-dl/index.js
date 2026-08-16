@@ -17,13 +17,15 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.16",
+    version: "1.2.17",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "playlistSearch",
+      "songSearch",
+      "albumSearch",
       "recommend",
       "playlistSongs",
       "stream",
@@ -47,8 +49,9 @@ globalThis.__mfPlugin = {
     minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
     // 方法级长耗时预算(毫秒):拉平台歌单/外网操作极慢,声明后沙箱按此预算而非默认 15s。
     // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s);
-    // searchPlaylists:歌单搜索按全部平台聚合(go-music-dl 后端自身多源并发,通常 2~5s,给 30s 兜底)。
-    longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000 },
+    // searchPlaylists:歌单搜索按全部平台聚合(go-music-dl 后端自身多源并发,通常 2~5s,给 30s 兜底);
+    // searchAlbums:专辑搜索同样按全部平台聚合(30s);searchSongs:歌曲搜索受 pickSearchSources ≤5 截断,15s。
+    longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000, searchAlbums: 30000, searchSongs: 15000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -305,6 +308,62 @@ globalThis.__mfPlugin = {
       return out;
     }
 
+    /** 解析 /music/search?type=album 的专辑结果卡片。与歌单卡片同构
+     *  (navigateTo('/music/album?...') 链接),按 id+source 去重,只取平台专辑。
+     *  字段: id/source/name/artist/cover/track_count/link。 */
+    function parseSearchAlbums(html) {
+      const out = [];
+      const seen = new Set();
+      const push = (a) => {
+        if (!a.id || !a.source || a.source === "local" || seen.has(a.source + ":" + a.id)) return;
+        seen.add(a.source + ":" + a.id);
+        out.push(a);
+      };
+      // 模式 1:album-card + navigateTo('/music/album?source=..&id=..&name=..')
+      const cardRe = /<div\s+class="album-card"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
+      let cm;
+      while ((cm = cardRe.exec(html)) !== null) {
+        let path = decodeAttr(cm[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
+        if (!path.startsWith("/music/album")) continue;
+        const p = new URLSearchParams(path.split("?")[1] || "");
+        const source = p.get("source") || "";
+        const id = p.get("id") || "";
+        if (!source || !id) continue;
+        push({
+          id,
+          source,
+          name: p.get("name") || "",
+          artist: p.get("artist") || p.get("creator") || "",
+          cover: p.get("cover") || "",
+          trackCount: p.get("track_count") || p.get("trackCount") || "",
+          link: p.get("link") || "",
+        });
+      }
+      // 模式 2:album-card 块内 data-* 属性兜底(与 song-card 同款属性约定)
+      const blockRe = /<div\s+class="album-card"([\s\S]*?)<\/div>/g;
+      let bm2;
+      while ((bm2 = blockRe.exec(html)) !== null) {
+        const block = bm2[1];
+        const attr = (name) => {
+          const re = new RegExp(`data-${name}=(["'])(.*?)\\1`, "i");
+          const a = re.exec(block);
+          return a ? decodeAttr(a[2]) : "";
+        };
+        const id = attr("id");
+        if (!id) continue;
+        push({
+          id,
+          source: attr("source"),
+          name: attr("name"),
+          artist: attr("artist") || attr("creator"),
+          cover: attr("cover"),
+          trackCount: attr("track-count") || attr("trackCount"),
+          link: attr("link"),
+        });
+      }
+      return out;
+    }
+
     /** 由已存储的 /music/download 流地址构造 /music/download_lrc 歌词地址。 */
     function lrcUrlFromSong(song) {
       if (!song.url || !String(song.url).includes("/music/download")) return null;
@@ -427,19 +486,27 @@ globalThis.__mfPlugin = {
     const fetchPlaylistSongs = async (config, source, id) => {
       const root = baseOf(config);
       const totalRe = /data-total-count="(\d+)"/;
-      let page = 1, total = 0;
-      const all = [];
-      do {
-        const qs = new URLSearchParams({ source, id, page: String(page), page_size: "500" });
-        const html = await httpText(root + "/music/playlist?" + qs.toString(), 30000);
-        if (page === 1) {
-          const m = totalRe.exec(html);
-          if (m) total = parseInt(m[1], 10) || 0;
-        }
-        all.push(...parseSongCards(html));
-        page++;
-      } while (total > 0 && all.length < total && all.length < MAX_SONGS_PER_PLAYLIST && page <= 50);
-      return all;
+      // 分页拉取指定详情页(歌单 / 专辑页面同构:song-card + data-total-count)。
+      const fetchPages = async (endpoint) => {
+        let page = 1, total = 0;
+        const all = [];
+        do {
+          const qs = new URLSearchParams({ source, id, page: String(page), page_size: "500" });
+          const html = await httpText(root + endpoint + "?" + qs.toString(), 30000);
+          if (page === 1) {
+            const m = totalRe.exec(html);
+            if (m) total = parseInt(m[1], 10) || 0;
+          }
+          all.push(...parseSongCards(html));
+          page++;
+        } while (total > 0 && all.length < total && all.length < MAX_SONGS_PER_PLAYLIST && page <= 50);
+        return all;
+      };
+      // 歌单搜索「加入库」走 /music/playlist;专辑搜索「加入库」经同一 playlistSongs 契约
+      // 调用,但专辑 id 在 /music/playlist 下无歌曲 → 回退 /music/album 再拉一遍。
+      let songs = await fetchPages("/music/playlist");
+      if (!songs.length) songs = await fetchPages("/music/album");
+      return songs;
     };
     /** 一次性拉本地曲库子集(≤ LOCAL_POOL_LIMIT 首,分页 500/页),按归一化标题建索引,
      *  池内 O(1) 匹配免去逐曲 host.songs.search 往返(单批几千首时是主要耗时)。 */
@@ -648,6 +715,32 @@ globalThis.__mfPlugin = {
         for (const s of sources) qs.append("sources", s);
         const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
         return { playlists: parseSearchPlaylists(html) };
+      },
+
+      // ===== songSearch:跨平台搜索单曲(结果可「加入库」为可播在线歌曲) =====
+      // 与 search() 同源(/music/search?type=song),但按新契约暴露为独立能力,
+      // 平台选择同样受 pickSearchSources(≤5) 截断防超时。
+      async searchSongs(config, params) {
+        const q = String((params && params.query) || "").trim();
+        if (!q) return { songs: [] };
+        const qs = new URLSearchParams({ q, type: "song" });
+        for (const s of pickSearchSources(config, params)) qs.append("sources", s);
+        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 15000);
+        return { songs: parseSongCards(html) };
+      },
+
+      // ===== albumSearch:跨全部平台搜索专辑(结果可「加入库」为专辑歌单) =====
+      // 专辑搜索与歌单搜索同策略:按全部平台聚合,go-music-dl 后端多源并发。
+      async searchAlbums(config, params) {
+        const q = String((params && params.query) || "").trim();
+        if (!q) return { albums: [] };
+        let sources = Array.isArray(params && params.sources) && params.sources.length
+          ? params.sources.filter((s) => typeof s === "string" && s)
+          : (manifest.platforms || []);
+        const qs = new URLSearchParams({ q, type: "album" });
+        for (const s of sources) qs.append("sources", s);
+        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 30000);
+        return { albums: parseSearchAlbums(html) };
       },
 
       async recommend(config) {

@@ -25,7 +25,7 @@ const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 // 与 MusicFlow backend/src/plugins/discovery.ts 的白名单保持一致。
 const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cover", "renderer", "scrobbler", "artist"];
 const VALID_CAPS = [
-  "search", "playlistSearch", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
+  "search", "playlistSearch", "songSearch", "artistSearch", "albumSearch", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
   "recommendPlaylist",
   "playlistSync", "autoMatch",
@@ -44,6 +44,9 @@ const KNOWN_PERMISSIONS = [
 const CAP_METHODS = {
   search: ["search"],
   playlistSearch: ["searchPlaylists"],
+  songSearch: ["searchSongs"],
+  artistSearch: ["searchArtists"],
+  albumSearch: ["searchAlbums"],
   recommend: ["recommend"],
   playlistSongs: ["playlistSongs"],
   stream: ["streamUrl"],
@@ -186,7 +189,7 @@ async function checkOne(id) {
   //      变量(ReferenceError)、解构错误等。纯存在性检查抓不到这类问题(go-music-dl
   //      v1.2.15 的 searchPlaylists 引用 manifest 未定义即为此类)。
   const SMOKE_SAFE = new Set([
-    "search", "searchPlaylists", "recommend", "playlistSongs",
+    "search", "searchPlaylists", "searchSongs", "searchAlbums", "recommend", "playlistSongs",
     "streamUrl", "lyricUrl", "searchLyrics", "searchCover", "test",
   ]);
   for (const cap of manifest.capabilities || []) {

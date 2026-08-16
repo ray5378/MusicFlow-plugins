@@ -1,6 +1,6 @@
 // ==================== Last.fm 播放记录上报 + 推荐歌单（scrobbler + recommender） ====================
 //
-// MusicFlow V2 官方外置插件。双功能,全面对标 listenbrainz 插件:
+// MusicFlow 官方外置插件。双功能,全面对标 listenbrainz 插件:
 //   1) scrobbler:把播放事件上报到 Last.fm(官方 Web API,MD5 签名鉴权);
 //   2) recommender(recommendPlaylist):每天按「用户收听数据」组装一张固定合并
 //      歌单「Last.fm 推荐」(id: pl-lf-recommend)。来源 = 用户 TopTracks(多周期

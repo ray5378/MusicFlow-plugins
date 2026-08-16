@@ -1,6 +1,6 @@
 // ==================== ListenBrainz 播放记录上报 + 推荐歌单（scrobbler + recommendPlaylist） ====================
 //
-// MusicFlow V2 官方外置插件。双功能:
+// MusicFlow 官方外置插件。双功能:
 //   1) scrobbler:把播放事件上报到 ListenBrainz(或自建实例);
 //   2) recommendPlaylist:每天按「协同过滤推荐」拉取歌单,生成为一张
 //      固定合并歌单「ListenBrainz」(id: pl-lb-recommend)。无法匹配本地的
@@ -181,7 +181,7 @@ globalThis.__mfPlugin = {
       const meta = { artist_name: artist, track_name: title };
       const album = String(event.album || "").trim();
       if (album) meta.release_name = album;
-      const info = { media_player: "MusicFlow", submission_client: "MusicFlow-V2", ...(extra || {}) };
+      const info = { media_player: "MusicFlow", submission_client: "MusicFlow", ...(extra || {}) };
       const secs = Number(event.duration);
       if (Number.isFinite(secs) && secs > 0) info.duration_ms = Math.round(secs * 1000);
       meta.additional_info = info;
@@ -415,7 +415,7 @@ globalThis.__mfPlugin = {
           try {
             const r = await host.http(url, {
               method: "GET",
-              headers: { Accept: "application/json", "User-Agent": "MusicFlow-V2/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow-V2)" },
+              headers: { Accept: "application/json", "User-Agent": "MusicFlow/1.0 (listenbrainz plugin; https://github.com/ray5378/MusicFlow)" },
               timeout: 6000,
               ...proxyFlag(),
             });

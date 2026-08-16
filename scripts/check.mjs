@@ -1,11 +1,11 @@
-// 插件契约校验：在推送/发版前跑一遍，把「装进 MusicFlow V2 才发现不对」的问题提前暴露。
+// 插件契约校验：在推送/发版前跑一遍，把「装进 MusicFlow 才发现不对」的问题提前暴露。
 //
 // 校验三层：
-//   1. plugin.json 是否能通过 V2 的 validateManifest(字段/类型/能力/权限白名单)
+//   1. plugin.json 是否能通过 validateManifest(字段/类型/能力/权限白名单)
 //   2. index.js 是否定义 globalThis.__mfPlugin(沙箱契约),且 manifest 与 plugin.json
 //      id/version/capabilities 一致;create(dummyHost) 能否返回 impl
 //   3. manifest 声明的每项能力，impl 是否真有对应方法
-//      —— 这一层最关键：V2 核心「只按 capabilities 分发」，声明缺失就永不被调用，
+//      —— 这一层最关键：核心「只按 capabilities 分发」，声明缺失就永不被调用，
 //         而这不会报错，只会静默失效(合并三插件前踩过的坑)。
 //   4. downloadUrl 的 tag 是否与 version 一致(指错 tag 会在市场安装时 404)
 //
@@ -22,7 +22,7 @@ import vm from "node:vm";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
 
-// 与 MusicFlow-V2 backend/src/plugins/discovery.ts 的白名单保持一致。
+// 与 MusicFlow backend/src/plugins/discovery.ts 的白名单保持一致。
 const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cover", "renderer", "scrobbler", "artist"];
 const VALID_CAPS = [
   "search", "playlistSearch", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
@@ -39,7 +39,7 @@ const KNOWN_PERMISSIONS = [
   "songs:read", "songs:write", "playlists:read", "playlists:write", "inter-plugin",
 ];
 
-// 能力 → impl 必须提供的方法(方法名取自 V2 核心的真实调用点)。
+// 能力 → impl 必须提供的方法(方法名取自核心的真实调用点)。
 // anyOf 表示满足其一即可；未列出的能力由核心用配置驱动，不要求方法。
 const CAP_METHODS = {
   search: ["search"],
@@ -53,7 +53,7 @@ const CAP_METHODS = {
   renderer: ["discover"],
   autoMatch: ["search"],
   scrobbler: { anyOf: ["onPlay", "onScrobble"] },
-  // 与 V2 backend/src/plugins/sandbox.ts 的 CAP_METHODS 保持同步
+  // 与backend/src/plugins/sandbox.ts 的 CAP_METHODS 保持同步
   playlistImport: ["canHandle", "fetchPlaylist"],
   playlistFile: ["canHandleFile", "parseFile"],
   dailyPlaylist: ["runDailyJob"],
@@ -69,7 +69,7 @@ const warnings = [];
 function fail(id, msg) { errors.push(`[${id}] ${msg}`); }
 function warn(id, msg) { warnings.push(`[${id}] ${msg}`); }
 
-/** 复刻 V2 的 validateManifest。返回错误字符串或 null。 */
+/** 复刻 validateManifest。返回错误字符串或 null。 */
 function validateManifest(m) {
   if (!m || typeof m !== "object") return "manifest 必须是对象";
   if (typeof m.id !== "string" || !m.id) return "manifest.id 缺失";

@@ -181,6 +181,28 @@ async function checkOne(id) {
     }
   }
 
+  // 4.5) 冒烟调用：对「空参可安全跑」的方法实际调用一次(假 config + dummy host)。
+  //      抓「方法存在但一调用就炸」的运行时错误——如 create 作用域里引用了未定义
+  //      变量(ReferenceError)、解构错误等。纯存在性检查抓不到这类问题(go-music-dl
+  //      v1.2.15 的 searchPlaylists 引用 manifest 未定义即为此类)。
+  const SMOKE_SAFE = new Set([
+    "search", "searchPlaylists", "recommend", "playlistSongs",
+    "streamUrl", "lyricUrl", "searchLyrics", "searchCover", "test",
+  ]);
+  for (const cap of manifest.capabilities || []) {
+    const need = CAP_METHODS[cap];
+    const fns = need ? (Array.isArray(need) ? need : need.anyOf || []) : [];
+    for (const fn of fns) {
+      if (!SMOKE_SAFE.has(fn) || typeof impl[fn] !== "function") continue;
+      try {
+        const args = fn === "streamUrl" || fn === "lyricUrl" ? [{}, {}] : [{}, { query: "" }];
+        await impl[fn](...args);
+      } catch (e) {
+        fail(id, `冒烟调用 ${fn}() 失败(方法存在但运行报错): ${e.message || e}`);
+      }
+    }
+  }
+
   // 反向提醒：impl 有方法却没声明对应能力 → 核心永不会调用它（静默失效）
   const declared = new Set(manifest.capabilities || []);
   // 多个能力可能共享同一组方法(如 dailyPlaylist / localPlaylist / recommendPlaylist

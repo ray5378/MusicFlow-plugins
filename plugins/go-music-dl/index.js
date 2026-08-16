@@ -17,12 +17,13 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.14",
+    version: "1.2.15",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
+      "playlistSearch",
       "recommend",
       "playlistSongs",
       "stream",
@@ -45,8 +46,9 @@ globalThis.__mfPlugin = {
     defaultEnabled: false,
     minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
     // 方法级长耗时预算(毫秒):拉平台歌单/外网操作极慢,声明后沙箱按此预算而非默认 15s。
-    // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s)。
-    longRunning: { runDailyJob: 600000, playlistSongs: 60000 },
+    // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s);
+    // searchPlaylists:歌单搜索按全部平台聚合(go-music-dl 后端自身多源并发,通常 2~5s,给 30s 兜底)。
+    longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -243,6 +245,58 @@ globalThis.__mfPlugin = {
           creator: params.get("creator") || "",
           trackCount: params.get("track_count") || "",
           link: params.get("link") || "",
+        });
+      }
+      return out;
+    }
+
+    /** 解析 /music/search?type=playlist 的歌单结果卡片。卡片形状与推荐/我的歌单页
+     *  一致(navigateTo('/music/playlist?...') 链接或「导入本地」data-* 按钮),
+     *  按 id+source 去重,只取平台歌单。 */
+    function parseSearchPlaylists(html) {
+      const out = [];
+      const seen = new Set();
+      const push = (p) => {
+        if (!p.id || !p.source || p.source === "local" || seen.has(p.source + ":" + p.id)) return;
+        seen.add(p.source + ":" + p.id);
+        out.push(p);
+      };
+      // 模式 1:playlist-card + navigateTo('/music/playlist?source=..&id=..&name=..')
+      const cardRe = /<div\s+class="playlist-card"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
+      let cm;
+      while ((cm = cardRe.exec(html)) !== null) {
+        let path = decodeAttr(cm[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
+        if (!path.startsWith("/music/playlist")) continue;
+        const p = new URLSearchParams(path.split("?")[1] || "");
+        const source = p.get("source") || "";
+        const id = p.get("id") || "";
+        if (!source || !id) continue;
+        push({
+          id,
+          source,
+          name: p.get("name") || "",
+          creator: p.get("creator") || "",
+          cover: p.get("cover") || "",
+          trackCount: p.get("track_count") || p.get("trackCount") || "",
+          link: p.get("link") || "",
+        });
+      }
+      // 模式 2:「导入本地」按钮 data-* 属性(同「我的歌单」页)
+      const btnRe = /<button\b[^>]*\bonclick="[^"]*importCollectionFromButton\(this\)"[^>]*>/g;
+      let bm;
+      while ((bm = btnRe.exec(html)) !== null) {
+        const block = bm[0];
+        const attr = (name) => {
+          const a = new RegExp(`\\bdata-${name}="([^"]*)"`, "i").exec(block);
+          return a ? decodeAttr(a[1]) : "";
+        };
+        push({
+          id: attr("external-id"),
+          source: attr("source"),
+          name: attr("name"),
+          creator: attr("creator"),
+          trackCount: attr("track-count"),
+          link: attr("link"),
         });
       }
       return out;
@@ -575,6 +629,22 @@ globalThis.__mfPlugin = {
         for (const s of pickSearchSources(config, params)) qs.append("sources", s);
         const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 12000);
         return { songs: parseSongCards(html) };
+      },
+
+      // ===== playlistSearch:跨全部平台搜索歌单(结果可「加入库」) =====
+      async searchPlaylists(config, params) {
+        const q = String((params && params.query) || "").trim();
+        if (!q) return { playlists: [] };
+        // 歌单搜索平台:调用方指定 → 插件声明的全部平台。不走歌曲搜索的
+        // pickSearchSources(≤5 截断)——歌单搜索由 go-music-dl 后端自身多源并发聚合,
+        // 一次请求即可带回全部平台结果;长耗时预算由 manifest.longRunning 声明兜底。
+        let sources = Array.isArray(params && params.sources) && params.sources.length
+          ? params.sources.filter((s) => typeof s === "string" && s)
+          : (manifest.platforms || []);
+        const qs = new URLSearchParams({ q, type: "playlist" });
+        for (const s of sources) qs.append("sources", s);
+        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
+        return { playlists: parseSearchPlaylists(html) };
       },
 
       async recommend(config) {

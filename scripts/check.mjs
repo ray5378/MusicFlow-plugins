@@ -25,7 +25,7 @@ const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace
 // 与 MusicFlow-V2 backend/src/plugins/discovery.ts 的白名单保持一致。
 const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cover", "renderer", "scrobbler", "artist"];
 const VALID_CAPS = [
-  "search", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
+  "search", "playlistSearch", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
   "recommendPlaylist",
   "playlistSync", "autoMatch",
@@ -43,6 +43,7 @@ const KNOWN_PERMISSIONS = [
 // anyOf 表示满足其一即可；未列出的能力由核心用配置驱动，不要求方法。
 const CAP_METHODS = {
   search: ["search"],
+  playlistSearch: ["searchPlaylists"],
   recommend: ["recommend"],
   playlistSongs: ["playlistSongs"],
   stream: ["streamUrl"],

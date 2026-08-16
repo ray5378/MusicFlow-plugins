@@ -319,31 +319,13 @@ globalThis.__mfPlugin = {
         seen.add(a.source + ":" + a.id);
         out.push(a);
       };
-      // 模式 1:album-card + navigateTo('/music/album?source=..&id=..&name=..')
-      const cardRe = /<div\s+class="album-card"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
-      let cm;
-      while ((cm = cardRe.exec(html)) !== null) {
-        let path = decodeAttr(cm[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
-        if (!path.startsWith("/music/album")) continue;
-        const p = new URLSearchParams(path.split("?")[1] || "");
-        const source = p.get("source") || "";
-        const id = p.get("id") || "";
-        if (!source || !id) continue;
-        push({
-          id,
-          source,
-          name: p.get("name") || "",
-          artist: p.get("artist") || p.get("creator") || "",
-          cover: p.get("cover") || "",
-          trackCount: p.get("track_count") || p.get("trackCount") || "",
-          link: p.get("link") || "",
-        });
-      }
-      // 模式 2:album-card 块内 data-* 属性兜底(与 song-card 同款属性约定)
-      const blockRe = /<div\s+class="album-card"([\s\S]*?)<\/div>/g;
-      let bm2;
-      while ((bm2 = blockRe.exec(html)) !== null) {
-        const block = bm2[1];
+      // 模式 1:album-card 块内 data-* 属性(与 song-card 同款结构,li 或 div 都兼容)。
+      // 专辑卡片与歌曲卡片同渲染函数,真实前端可能是 <li class="album-card" data-*="...">,
+      // 旧实现只匹配 <div class="album-card"> 会解析 0 结果。
+      const blockRe = /<(li|div)\s+class="album-card"([\s\S]*?)<\/\1>/g;
+      let bm;
+      while ((bm = blockRe.exec(html)) !== null) {
+        const block = bm[2];
         const attr = (name) => {
           const re = new RegExp(`data-${name}=(["'])(.*?)\\1`, "i");
           const a = re.exec(block);
@@ -360,6 +342,28 @@ globalThis.__mfPlugin = {
           trackCount: attr("track-count") || attr("trackCount"),
           link: attr("link"),
         });
+      }
+      // 模式 2(兜底):div.album-card + onclick="navigateTo('/music/album?...')"(无 data-* 的旧结构)。
+      if (out.length === 0) {
+        const cardRe = /<div\s+class="album-card"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
+        let cm;
+        while ((cm = cardRe.exec(html)) !== null) {
+          let path = decodeAttr(cm[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
+          if (!path.startsWith("/music/album")) continue;
+          const p = new URLSearchParams(path.split("?")[1] || "");
+          const source = p.get("source") || "";
+          const id = p.get("id") || "";
+          if (!source || !id) continue;
+          push({
+            id,
+            source,
+            name: p.get("name") || "",
+            artist: p.get("artist") || p.get("creator") || "",
+            cover: p.get("cover") || "",
+            trackCount: p.get("track_count") || p.get("trackCount") || "",
+            link: p.get("link") || "",
+          });
+        }
       }
       return out;
     }

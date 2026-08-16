@@ -1,17 +1,17 @@
 # MusicFlow-plugins
 
-MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/MusicFlow-V2)）的**官方插件分发仓库**。
+MusicFlow（插件化重构分支 [MusicFlow](https://github.com/ray5378/MusicFlow)）的**官方插件分发仓库**。
 
-本仓库托管以「外置 drop-in 插件」形式分发的官方插件，通过 V2 后端的**插件市场**一键安装，
+本仓库托管以「外置 drop-in 插件」形式分发的官方插件，通过 MusicFlow 后端的**插件市场**一键安装，
 不再随后端二进制内置。
 
-> **先决条件**：需要先部署 [MusicFlow-V2](https://github.com/ray5378/MusicFlow-V2)（≥ 1.3.0，
+> **先决条件**：需要先部署 [MusicFlow](https://github.com/ray5378/MusicFlow)（≥ 1.3.0，
 > 沙箱运行时；推荐用最新版）。部署方式（docker compose / HA 加载项 / 裸跑）、版本配套表、
 > 环境变量与 HA 生态见**主项目 README**：
-> [`MusicFlow-V2/README.md`](https://github.com/ray5378/MusicFlow-V2/blob/master/README.md)。
-> 本仓库的插件通过 V2「插件」页的市场一键安装，**不需要手动下载/解压**。
+> [`MusicFlow/README.md`](https://github.com/ray5378/MusicFlow/blob/master/README.md)。
+> 本仓库的插件通过 MusicFlow「插件」页的市场一键安装，**不需要手动下载/解压**。
 
-> 说明：V2 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
+> 说明：MusicFlow 的「核心插件」（QQ/网易云/本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）
 > 仍随后端内置，开箱即用。**go-music-dl（源 / 歌词 / 封面三合一）是外置插件**——自本仓库
 > 分发、市场一键安装，配置方式为「已安装」里填 `baseUrl` 并启用。
 
@@ -23,23 +23,23 @@ MusicFlow V2（插件化重构分支 [MusicFlow-V2](https://github.com/ray5378/M
 | [`listenbrainz`](plugins/listenbrainz) | 1.5.6 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [ListenBrainz](https://listenbrainz.org)（开源的 Last.fm 替代品），并按协同过滤推荐生成「ListenBrainz」歌单（可固定首页、每日调度 + 手动刷新，本地/在线源补全）。v1.5.5：经 manifest `longRunning` 声明 `runDailyJob` 120s 长耗时预算（需后端 ≥ 1.7.39），配合后端异步任务通道一次任务完成生成，不再被沙箱/前端 15s 卡死。v1.5.4 起：在线补全加预算闸，超预算的歌留外部占位由后台 auto-match 补全。v1.5.3 起：换名优先用「收听历史 + LB 元数据」（直连可达、不依赖 MB），MusicBrainz 仅兜底且带重试/预算/快速降级；配置页新增「走系统网络代理」开关（需后端 1.7.38+）与「排除已听过的推荐」开关。不用这类服务的话无需安装 |
 | [`lastfm`](plugins/lastfm) | 1.0.1 | scrobbler | 播放记录上报 + 推荐歌单：把播放事件上报到 [Last.fm](https://www.last.fm)（MD5 签名鉴权），并按收听数据组装「Last.fm 推荐」歌单（Top 多周期 + 喜欢的歌 + 相似艺人，可固定首页、每日调度 + 手动刷新，本地/在线源补全）。需要申请 Last.fm API Key 并在浏览器授权一次拿 Session Key（插件配置页各输入框下方已附「获取链接」，可一键跳到申请 / 授权页）。不用这类服务的话无需安装 |
 
-> 插件运行于 **QuickJS 沙箱**（需要 V2 ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
+> 插件运行于 **QuickJS 沙箱**（需要 MusicFlow ≥ 1.3.0 的沙箱运行时，见 manifest 的 `minAppVersion`）。
 
-> 历史：go-music-dl 曾在早期版本随后端内置，V2 插件化改造后外置化，并合并为**单插件多能力**
+> 历史：go-music-dl 曾在早期版本随后端内置，MusicFlow 插件化改造后外置化，并合并为**单插件多能力**
 > （source 的 capabilities 含 lyricProvider/coverProvider），随本仓库分发。
 
-## 在 MusicFlow V2 中安装
+## 在 MusicFlow 中安装
 
-1. 打开 V2 后台 → **插件** → **插件市场** 标签页。
-2. 官方注册表**已由 V2 首次启动时自动添加**，无需手动粘贴：
+1. 打开 MusicFlow 后台 → **插件** → **插件市场** 标签页。
+2. 官方注册表**已由 MusicFlow 首次启动时自动添加**，无需手动粘贴：
    ```
    https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/registry.json
    ```
-   如果你删掉过它（V2 不会自动加回，这是刻意设计），在「注册表」里手动添加上面的地址即可。
+   如果你删掉过它（MusicFlow 不会自动加回，这是刻意设计），在「注册表」里手动添加上面的地址即可。
    离线 / 内网部署可用环境变量 `MUSICFLOW_OFFICIAL_REGISTRY` 换成自建镜像，或置空以完全关闭自动添加。
-3. 市场列出的是本仓库托管的**外置插件**：`go-music-dl`、`listenbrainz`、`lastfm`（均为外置，从市场一键安装）。V2 的「核心插件」（QQ / 网易云 / 本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）仍随后端内置，开箱即用。
+3. 市场列出的是本仓库托管的**外置插件**：`go-music-dl`、`listenbrainz`、`lastfm`（均为外置，从市场一键安装）。MusicFlow 的「核心插件」（QQ / 网易云 / 本地歌单导入、每日推荐、本地推荐、歌单同步、DLNA 投屏）仍随后端内置，开箱即用。
 
-> 安装走的是 V2 的 `installPlugin`：下载 `plugin.json` 里的 `downloadUrl` 压缩包 → 解压到
+> 安装走的是 MusicFlow 的 `installPlugin`：下载 `plugin.json` 里的 `downloadUrl` 压缩包 → 解压到
 > `data/plugins/<id>/` → 自动发现、免重启生效。
 
 ## 插件目录结构
@@ -82,16 +82,16 @@ node scripts/check.mjs            # 全部插件
 node scripts/check.mjs <id>       # 指定插件
 ```
 
-校验四件事，专门防住那些「装进 V2 才发现」的坑：
+校验四件事，专门防住那些「装进 MusicFlow 才发现」的坑：
 
-1. `plugin.json` 能否通过 V2 的 `validateManifest`（字段 / 类型 / 能力 / 权限白名单）。
+1. `plugin.json` 能否通过 MusicFlow 的 `validateManifest`（字段 / 类型 / 能力 / 权限白名单）。
 2. `index.js` 是否定义了 `globalThis.__mfPlugin`（沙箱契约），`manifest` 与 `plugin.json` 的
    id / version / capabilities 是否一致，`create(host)` 能否在 dummy host 下产出 impl。
-3. **声明的每项能力都有对应实现方法**。V2 核心「只按 `capabilities` 分发」，
+3. **声明的每项能力都有对应实现方法**。MusicFlow 核心「只按 `capabilities` 分发」，
    声明缺失不会报错、只会**静默失效**——脚本还会反向提醒「有方法但没声明能力」的情况。
 4. `downloadUrl` 的 Release tag 与 `version` 是否匹配（不匹配就会在市场安装时 404）。
 
-## 沙箱安全模型（V2 ≥ 1.3.0）
+## 沙箱安全模型（MusicFlow ≥ 1.3.0）
 
 外置插件运行在 **QuickJS 虚拟机**（WASM）里，与主进程完全隔离：
 
@@ -101,7 +101,7 @@ node scripts/check.mjs <id>       # 指定插件
 - 单插件内存 256MB / 栈 1MB / 单次调用超时 15s，卡死可杀、崩溃不拖垮主进程；
 - 沙箱内注入 `URL` / `URLSearchParams` 兼容层；**禁止使用 `eval` / `new Function`**（QuickJS 下即使用到也碰不到宿主）。
 
-> 写插件前先读 [docs/PLUGIN_DEV.md](https://github.com/ray5378/MusicFlow-V2/blob/master/docs/PLUGIN_DEV.md)（沙箱契约完整开发指南）。
+> 写插件前先读 [docs/PLUGIN_DEV.md](https://github.com/ray5378/MusicFlow/blob/master/docs/PLUGIN_DEV.md)（沙箱契约完整开发指南）。
 
 ## 第三方插件风险
 

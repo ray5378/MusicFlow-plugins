@@ -36,13 +36,16 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lastfm",
     name: "Last.fm 播放记录 + 推荐",
-    version: "1.0.1",
+    version: "1.0.2",
     type: "scrobbler",
     description:
       "把播放记录上报到 Last.fm(经典 Last.fm 官方服务),并每天按收听数据组装「Last.fm 推荐」歌单(Top + Loved + 相似艺人)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
-    minAppVersion: "1.7.34", // host.crypto.md5 自 1.7.34 起可用(api_sig 签名)
+    minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
+    // 方法级长耗时预算:onPlay/onScrobble 上报声明预算(软看门狗,无 15s 墙钟硬杀),
+    // 慢网络下上报不再被沙箱超时中断;runDailyJob 组装推荐歌单也需要长预算。
+    longRunning: { onPlay: 25000, onScrobble: 25000, runDailyJob: 120000 },
     permissions: ["net", "storage", "crypto", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -234,7 +237,7 @@ globalThis.__mfPlugin = {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
         body,
-        timeout: 15000,
+        timeout: 20000, // 软看门狗预算内放宽:Last.fm 偶发慢,15s 容易被掐断
       });
       let d = {};
       try { d = JSON.parse(r.body || "{}"); } catch { /* 下面统一按 !ok 处理 */ }

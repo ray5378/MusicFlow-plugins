@@ -28,15 +28,17 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.6",
+    version: "1.5.7",
     type: "scrobbler",
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;经 manifest.longRunning 声明长耗时预算,配合后端异步任务通道一次任务即可完成生成)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
-    // 方法级长耗时预算:拉取 listenbrainz.org(外网)推荐 + MusicBrainz 兜底,声明 120s。
-    longRunning: { runDailyJob: 120000 },
+    // 方法级长耗时预算:拉取 listenbrainz.org(外网)推荐 + MusicBrainz 兜底,声明 120s;
+    // onPlay/onScrobble 上报同样声明预算(软看门狗,无 15s 墙钟硬杀)——慢网络/代理下
+    // 上报不再被沙箱超时中断成 "HTTP 0"(此前超时失败还可能诱发客户端重试,加剧重复收听)。
+    longRunning: { runDailyJob: 120000, onPlay: 25000, onScrobble: 25000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -194,7 +196,7 @@ globalThis.__mfPlugin = {
         method: "POST",
         headers: { Authorization: "Token " + token, "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        timeout: 15000,
+        timeout: 20000, // 软看门狗预算内放宽:ListenBrainz 偶发慢(尤其走代理),15s 容易被掐断
         ...proxyFlag(),
       });
       if (r.ok) return;

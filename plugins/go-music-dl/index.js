@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.20",
+    version: "1.2.21",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -555,7 +555,9 @@ globalThis.__mfPlugin = {
       for (const cnd of cands) {
         if (cnd.artist && (cnd.artist.includes(a) || a.includes(cnd.artist))) return cnd.id;
       }
-      return cands[0].id; // 标题精确命中即返回(艺人差异不阻塞)
+      // 歌名撞车但有歌手期望:歌手不符即视为「同名异曲」,不得绑定本地曲库
+      // (回退 matchLocal / 外部占位,由后台 auto-match 严格匹配)。
+      return null;
     }
     /** 本地曲库模糊匹配(与 ListenBrainz 插件同款打分),命中返回 songId。
      *  cache 为调用内 Map(title|artist → id|null),去重跨歌单重复曲目。 */
@@ -572,12 +574,15 @@ globalThis.__mfPlugin = {
       let best = null, bestScore = -1;
       for (const h of hits) {
         const hTitle = norm(h.title);
+        const aNorm = norm(artist);
+        const hArtist = norm(h.artist);
+        // 收紧:同歌名很常见,歌手不符的候选直接排除(避免 bind 到同名异曲)。
+        const artistOk = !aNorm || !!(hArtist && (hArtist.includes(aNorm) || aNorm.includes(hArtist)));
+        if (!artistOk) continue;
         let score = 0;
         if (hTitle === tNorm) score += 100;
         else if (hTitle.includes(tNorm) || tNorm.includes(hTitle)) score += 60;
         if (artist) {
-          const aNorm = norm(artist);
-          const hArtist = norm(h.artist);
           if (aNorm && (hArtist.includes(aNorm) || aNorm.includes(hArtist))) score += 40;
         }
         if (score > bestScore) { bestScore = score; best = h; }

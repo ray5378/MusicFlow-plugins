@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.19",
+    version: "1.2.20",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -117,6 +117,13 @@ globalThis.__mfPlugin = {
         .trim();
     }
 
+    /** 解码 go-music-dl 服务端在 HTML 里嵌入的 JS 字符串转义(如 \u002b → +)。
+     *  必须在 URLSearchParams 拆分之后再对字段值做 — \u0026 在路径里是参数分隔符,
+     *  而在字段值里 \u002b 若提前解成 + 会被 URLSearchParams 当空格吞掉。 */
+    function decodeUnicode(v) {
+      return String(v).replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    }
+
     /** 解析 data-extra 属性里嵌的 JSON(或退化成 generic dict)。 */
     function parseSongExtra(raw) {
       if (!raw) return null;
@@ -151,11 +158,11 @@ globalThis.__mfPlugin = {
         songs.push({
           id,
           source: decodeAttr(attr("source")),
-          name: decodeAttr(attr("name")),
-          artist: decodeAttr(attr("artist")),
-          album: decodeAttr(attr("album")),
+          name: decodeUnicode(decodeAttr(attr("name"))),
+          artist: decodeUnicode(decodeAttr(attr("artist"))),
+          album: decodeUnicode(decodeAttr(attr("album"))),
           duration: parseInt(attr("duration"), 10) || 0,
-          cover: decodeAttr(attr("cover")),
+          cover: decodeUnicode(decodeAttr(attr("cover"))),
           extra: parseSongExtra(attr("extra")),
           sortSize: decodeAttr(attr("sort-size")),
           sortBitrate: decodeAttr(attr("sort-bitrate")),
@@ -176,7 +183,7 @@ globalThis.__mfPlugin = {
         const countM = /category-source-tab-count"[^>]*>\s*(\d+)\s*</.exec(inner);
         channels.push({
           source,
-          name: nameM ? decodeAttr(nameM[1]) : source,
+          name: decodeUnicode(nameM ? decodeAttr(nameM[1]) : source),
           count: countM ? parseInt(countM[1], 10) || 0 : 0,
           playlists: [],
         });
@@ -195,10 +202,10 @@ globalThis.__mfPlugin = {
         const info = {
           id,
           source,
-          name: params.get("name") || "",
-          creator: params.get("creator") || "",
-          cover: params.get("cover") || "",
-          trackCount: params.get("track_count") || "",
+          name: decodeUnicode(params.get("name") || ""),
+          creator: decodeUnicode(params.get("creator") || ""),
+          cover: decodeUnicode(params.get("cover") || ""),
+          trackCount: decodeUnicode(params.get("track_count") || ""),
           link: params.get("link") || "",
         };
         const ch =
@@ -228,7 +235,7 @@ globalThis.__mfPlugin = {
         const block = m[0];
         const attr = (name) => {
           const a = new RegExp(`\\bdata-${name}="([^"]*)"`, "i").exec(block);
-          return a ? decodeAttr(a[1]) : "";
+          return a ? decodeUnicode(decodeAttr(a[1])) : "";
         };
         push({
           id: attr("external-id"),
@@ -247,9 +254,9 @@ globalThis.__mfPlugin = {
         push({
           id: params.get("id") || "",
           source: params.get("source") || "",
-          name: params.get("name") || "",
-          creator: params.get("creator") || "",
-          trackCount: params.get("track_count") || "",
+          name: decodeUnicode(params.get("name") || ""),
+          creator: decodeUnicode(params.get("creator") || ""),
+          trackCount: decodeUnicode(params.get("track_count") || ""),
           link: params.get("link") || "",
         });
       }
@@ -280,10 +287,10 @@ globalThis.__mfPlugin = {
         push({
           id,
           source,
-          name: p.get("name") || "",
-          creator: p.get("creator") || "",
-          cover: p.get("cover") || "",
-          trackCount: p.get("track_count") || p.get("trackCount") || "",
+          name: decodeUnicode(p.get("name") || ""),
+          creator: decodeUnicode(p.get("creator") || ""),
+          cover: decodeUnicode(p.get("cover") || ""),
+          trackCount: decodeUnicode(p.get("track_count") || p.get("trackCount") || ""),
           link: p.get("link") || "",
         });
       }
@@ -294,7 +301,7 @@ globalThis.__mfPlugin = {
         const block = bm[0];
         const attr = (name) => {
           const a = new RegExp(`\\bdata-${name}="([^"]*)"`, "i").exec(block);
-          return a ? decodeAttr(a[1]) : "";
+          return a ? decodeUnicode(decodeAttr(a[1])) : "";
         };
         push({
           id: attr("external-id"),
@@ -329,7 +336,7 @@ globalThis.__mfPlugin = {
         const attr = (name) => {
           const re = new RegExp(`data-${name}=(["'])(.*?)\\1`, "i");
           const a = re.exec(block);
-          return a ? decodeAttr(a[2]) : "";
+          return a ? decodeUnicode(decodeAttr(a[2])) : "";
         };
         const id = attr("id");
         if (!id) continue;
@@ -343,12 +350,14 @@ globalThis.__mfPlugin = {
           link: attr("link"),
         });
       }
-      // 模式 2(兜底):div.album-card + onclick="navigateTo('/music/album?...')"(无 data-* 的旧结构)。
+      // 模式 2(兜底):卡片 navigateTo('/music/album?...')(无 data-* 的旧结构)。
+      // go-music-dl 前端把专辑搜索结果渲染成 playlist-card 卡片类(onclick 指向
+      // /music/album…),故 album-card 与 playlist-card 都匹配,避免解析出 0 结果。
       if (out.length === 0) {
-        const cardRe = /<div\s+class="album-card"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
+        const cardRe = /<(li|div)\s+class="(?:album-card|playlist-card)"[^>]*onclick="navigateTo\(\s*['"](.*?)['"]\s*\)"/g;
         let cm;
         while ((cm = cardRe.exec(html)) !== null) {
-          let path = decodeAttr(cm[1]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
+          let path = decodeAttr(cm[2]).replace(/\\\//g, "/").replace(/\\u0026/gi, "&");
           if (!path.startsWith("/music/album")) continue;
           const p = new URLSearchParams(path.split("?")[1] || "");
           const source = p.get("source") || "";
@@ -357,10 +366,10 @@ globalThis.__mfPlugin = {
           push({
             id,
             source,
-            name: p.get("name") || "",
-            artist: p.get("artist") || p.get("creator") || "",
-            cover: p.get("cover") || "",
-            trackCount: p.get("track_count") || p.get("trackCount") || "",
+            name: decodeUnicode(p.get("name") || ""),
+            artist: decodeUnicode(p.get("artist") || p.get("creator") || ""),
+            cover: decodeUnicode(p.get("cover") || ""),
+            trackCount: decodeUnicode(p.get("track_count") || p.get("trackCount") || ""),
             link: p.get("link") || "",
           });
         }

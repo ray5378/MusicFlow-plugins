@@ -1,7 +1,7 @@
 {
   "id": "go-music-dl",
   "name": "go-music-dl 全网聚合",
-  "version": "1.2.21",
+  "version": "1.2.22",
   "type": "source",
   "description": "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台)。配置后台用户名/密码后,插件每日自动登录并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为持久歌单同步到本地(不轮转、不被清理;经 manifest.longRunning + 主项目 1.7.47 软看门狗,批量任务无墙钟——无限歌单/封面/歌词一次跑完,窗口并行拉取提速(3 路并发,配合主项目 1.7.48 批量任务限速档位,CPU 占用平缓);歌单带平台标签,前端显示对应平台徽标)。运行于 QuickJS 沙箱。",
   "capabilities": [
@@ -39,7 +39,8 @@
     "playlistSongs": 60000,
     "searchPlaylists": 30000,
     "searchAlbums": 30000,
-    "searchSongs": 15000
+    "searchSongs": 15000,
+    "recommend": 60000
   },
   "permissions": [
     "net",
@@ -50,7 +51,7 @@
   ],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.21/go-music-dl.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.22/go-music-dl.tar.gz",
   "documentation": "### 功能介绍\n全网音乐源聚合插件（go-music-dl 三合一）：在线搜索、每日推荐歌单、远程歌单拉取、音频流播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面三项能力合并为单个插件，共用一份服务地址配置。\n\n### 处理逻辑\n1. 核心按能力遍历启用插件：搜索走 `search`、每日推荐走 `recommend`、远程歌单走 `playlistSongs`、播放走 `stream`（`streamUrl` 构造可播地址）、歌词走 `lyricProvider`、封面走 `coverProvider`；\n2. 所有能力基于 `host.config` 里的 baseUrl 指向局域网部署的 go-music-dl 服务，由该服务完成各平台（QQ / 网易 / 酷狗 / 咪咕等）的聚合抓取与解密；\n3. 在线歌曲的过期清理（`webRotation` 能力）由核心定时器调度，按保留天数回收不再被引用的 web 歌曲与封面。\n\n### 沙箱说明\n本插件运行在 QuickJS 虚拟机内(方案 B 沙箱):代码拿不到 Node 的任何能力,网络只能通过 `host.http`(自带超时),配置经 `host.config` 实时读取;`permissions` 声明了 `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。\n\n## 配置\n- `baseUrl`（必填）：go-music-dl 网页服务地址，如 `http://192.168.1.10:18080`；\n- `sources`：搜索平台多选（默认全部）；\n- `webSongsMode` / `webSongsRetentionDays`：web 歌曲保留策略与清理天数；\n- `homeCount`：首页「平台精选」每个平台展示的歌单数（1~50，默认 6，所有平台相同）；\n- 启用后可在插件页「测试连接」验证服务可达。\n\n### 我的私人歌单（路径 B：持久、不轮转）\n配置 `username` / `password`（go-music-dl 网页后台登录凭据）并开启 `同步我的私人歌单` 后，插件会**每日自动登录**，把各平台「我的歌单」（仅网易云 / QQ / 酷狗 / 汽水，酷我 / 咪咕不支持）作为**持久本地歌单**同步（固定 id `pl-gmdl-mine-<平台>-<歌单id>`，不参与每日轮转清理）。\n\nv1.2.9 起，插件通过 manifest `longRunning` 声明 `runDailyJob`（240s）与 `playlistSongs`（60s）的长耗时预算（需后端 ≥ 1.7.39），配合后端**异步任务通道**，**一次「手动刷新」即可全量同步**全部私人歌单（约 1~2 分钟），不再受沙箱 15s 配额限制需分批多次触发；进度持久化游标仍保留（防中断续传）。歌单内歌曲刷新策略：优先匹配本地曲库（含本地曲库池 O(1) 匹配），未命中的写入外部占位条目，由后端在 upsert 后自动触发的后台 auto-match（主进程、不受 15s 限制）继续补全为可播条目。手动刷新：`POST /rest/api/v1/recommend/refresh` 传 `{\"pluginId\":\"go-music-dl\"}`（异步启动，前端轮询 `GET /rest/api/v1/plugins/go-music-dl/job` 查进度）。\n\n### 健康自检\n实现了可选  钩子：检查 baseUrl 是否配置并探测服务可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s）。",
   "configSchema": [
     {

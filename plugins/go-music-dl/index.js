@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.21",
+    version: "1.2.22",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -51,7 +51,8 @@ globalThis.__mfPlugin = {
     // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s);
     // searchPlaylists:歌单搜索按全部平台聚合(go-music-dl 后端自身多源并发,通常 2~5s,给 30s 兜底);
     // searchAlbums:专辑搜索同样按全部平台聚合(30s);searchSongs:歌曲搜索受 pickSearchSources ≤5 截断,15s。
-    longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000, searchAlbums: 30000, searchSongs: 15000 },
+    // recommend:首页「平台精选」实时拉取 + 酷狗预热重试,默认定 15s 不够,给 60s 兜底。
+    longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000, searchAlbums: 30000, searchSongs: 15000, recommend: 60000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
@@ -765,8 +766,53 @@ globalThis.__mfPlugin = {
         // 公开推荐歌单(路径 A,轮转清理) —— 仅返回公开「平台精选」频道。
         // 「我的私人歌单」改走路径 B(持久歌单,每日自动同步),见 runDailyJob(),
         // 不再经推荐频道,因此不会被每日轮转清理。
-        const html = await httpText(baseOf(config) + "/music/recommend", 20000);
-        const channels = parseRecommendPlaylists(html);
+        //
+        // 防「酷狗精选栏消失」:go-music-dl 服务端对部分平台(典型是酷狗)的推荐
+        // tab 常需「预热」几次才返回非空歌单,单次抓取常拿到空桶 —— 空分区会被
+        // 前端过滤掉,表现为首页该平台精选整栏消失。因此这里做有界重试:只要有
+        // 空分区就重抓(沙箱不提供 setTimeout,间隔由每次 /music/recommend 往返
+        // 自然给出),全部分区非空即停;重试后仍空的分区用「上次成功」持久化快照
+        // 兜底,确保精选栏不消失。预算由 manifest.longRunning.recommend(60s)兜底。
+        const RECOMMEND_RETRIES = 2;         // 首抓 + 最多 2 次重试
+        const RECOMMEND_TIMEOUT = 20000;     // 首抓 20s
+        const RECOMMEND_RETRY_TIMEOUT = 15000; // 重试 15s(压住总墙钟,避开 60s 预算)
+        const CACHE_KEY = "gmdlRecommendChannels";
+
+        let channels = [];
+        for (let attempt = 0; attempt <= RECOMMEND_RETRIES; attempt++) {
+          const html = await httpText(
+            baseOf(config) + "/music/recommend",
+            attempt === 0 ? RECOMMEND_TIMEOUT : RECOMMEND_RETRY_TIMEOUT
+          );
+          channels = parseRecommendPlaylists(html);
+          // 全部分区都有歌单即视为预热完成;空数组(页面/网络异常)不再空转。
+          if (channels.length > 0 && channels.every((c) => c.playlists.length > 0)) break;
+        }
+
+        // 兜底:仍有空分区 → 用「上次成功」快照补齐,避免精选栏消失。
+        try {
+          const cached = await host.storage.get(CACHE_KEY);
+          if (Array.isArray(cached) && cached.length) {
+            const bySource = {};
+            for (const c of cached) {
+              if (c && c.source && (c.playlists || []).length) bySource[c.source] = c.playlists;
+            }
+            if (Object.keys(bySource).length) {
+              for (const ch of channels) {
+                if (!ch.playlists.length && bySource[ch.source]) {
+                  ch.playlists = bySource[ch.source].slice();
+                }
+              }
+            }
+          }
+        } catch { /* 存储不可用则仅依赖本次实时结果 */ }
+
+        // 全部非空才算一份「成功快照」,保存供下次兜底——避免把好缓存写坏。
+        const allFilled = channels.length > 0 && channels.every((c) => c.playlists.length > 0);
+        if (allFilled) {
+          try { await host.storage.set(CACHE_KEY, channels); } catch { /* 忽略 */ }
+        }
+
         // 每平台歌单数由插件自身配置 homeCount 控制(默认 6,取值 1~50)。
         // 单一全局值 → 所有平台展示同样数量,首页「平台精选」数量随配置变化。
         const raw = parseInt(String((config && config.homeCount) != null ? config.homeCount : 6), 10);

@@ -83,6 +83,7 @@ globalThis.__mfPlugin = {
       { key: "webSongsRetentionDays", label: "保留天数", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
       { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
       { key: "keywords", label: "搜索关键词", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
+      { key: "minSongs", label: "歌单最少歌曲数", type: "number", default: 30, help: "歌单歌曲数量大于此值才保留入库,避免导入空歌单" },
     ],
   },
 
@@ -941,15 +942,19 @@ globalThis.__mfPlugin = {
       // 用户配置 keywords 后,每日自动搜索各平台匹配歌单,已入库(host.playlists.findBySource)
       // 的跳过,未入库的通过 host.playlists.upsert 写入本地库并标记 externalId。
       async runDailyJob(opts) {
-        // 1) 私人歌单同步
-        try {
-          await syncMyPlaylists(opts || {});
-        } catch (e) {
-          host.log("私人歌单同步失败: " + (e && e.message ? e.message : e));
+        // 手动关键词搜索入库时跳过私人歌单同步
+        if (!opts || !opts.keywordOnly) {
+          // 1) 私人歌单同步
+          try {
+            await syncMyPlaylists(opts || {});
+          } catch (e) {
+            host.log("私人歌单同步失败: " + (e && e.message ? e.message : e));
+          }
         }
         // 2) 关键词搜索入库
         try {
-          const kw = (host.config && host.config.keywords || "").split("\n").map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+          var minSongs = parseInt(host.config && host.config.minSongs, 10) || 30;
+          var kw = (host.config && host.config.keywords || "").split("\n").map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
           if (kw.length > 0) {
             for (var ki = 0; ki < kw.length; ki++) {
               var query = kw[ki];
@@ -967,6 +972,11 @@ globalThis.__mfPlugin = {
                 // 拉取歌曲
                 var songsResult = await fetchPlaylistSongs(host.config, pl.source, pl.id);
                 var songs = songsResult && (songsResult.songs || []) || [];
+                // 歌曲数量不足则跳过
+                if (songs.length < minSongs) {
+                  host.log("  跳过歌曲数不足: " + (pl.name || "") + " (" + pl.source + "/" + pl.id + ", " + songs.length + " 首, 阈值 " + minSongs + ")");
+                  continue;
+                }
                 // 写入本地歌单(固定 id 保证 upsert 幂等)
                 var localId = "pl-kw-" + pl.source + "-" + pl.id;
                 var songEntries = [];

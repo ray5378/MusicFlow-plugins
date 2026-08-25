@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.28",
+    version: "1.2.29",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -830,6 +830,12 @@ globalThis.__mfPlugin = {
         const allFilled = channels.length > 0 && channels.every((c) => c.playlists.length > 0);
         if (allFilled) {
           try { await host.storage.set(CACHE_KEY, channels); } catch { /* 忽略 */ }
+        }
+
+        // 按 recommendPlatforms 配置过滤首页展示的平台。
+        const recommendPlatforms = config.recommendPlatforms;
+        if (Array.isArray(recommendPlatforms) && recommendPlatforms.length > 0) {
+          channels = channels.filter((ch) => recommendPlatforms.includes(ch.source));
         }
 
         // 每平台歌单数由插件自身配置 homeCount 控制(默认 6,取值 1~50)。

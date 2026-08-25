@@ -16,7 +16,7 @@
 globalThis.__mfPlugin var manifest = {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.35",
+    version: "1.2.36",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -55,13 +55,13 @@ globalThis.__mfPlugin var manifest = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.34/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.36/go-music-dl.tar.gz",
     configSchema: [
-      { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
-      { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
-      { key: "password", label: "登录密码", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
-      { key: "importMyPlaylists", label: "同步我的私人歌单", type: "switch", default: true, help: "开启后,插件每日自动登录并分批滚动同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理;每次同步一个批次(沙箱 15s 配额内),进度持久化、跨日推进直至全部覆盖,歌单内歌曲自动刷新为可播条目(本地缺失的交由后台自动补全);关闭则只同步公开推荐" },
-      { key: "sources", label: "搜索平台", type: "multiselect", help: "搜索/匹配时使用的平台(未配置则默认国内 4 平台)。每次搜索自动按国内优先重排并最多取 5 个——避免全平台搜索(含 bilibili/JOOX/Apple 等外网)单次超时。", options: [
+      { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
+      { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
+      { key: "password", label: "登录密码", group: "backend", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
+      { key: "importMyPlaylists", label: "同步我的私人歌单", group: "backend", type: "switch", default: true, help: "开启后,插件每日自动登录并分批滚动同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理;每次同步一个批次(沙箱 15s 配额内),进度持久化、跨日推进直至全部覆盖,歌单内歌曲自动刷新为可播条目(本地缺失的交由后台自动补全);关闭则只同步公开推荐" },
+      { key: "sources", label: "搜索平台", group: "backend", type: "multiselect", help: "搜索/匹配时使用的平台(未配置则默认国内 4 平台)。每次搜索自动按国内优先重排并最多取 5 个——避免全平台搜索(含 bilibili/JOOX/Apple 等外网)单次超时。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -75,12 +75,12 @@ globalThis.__mfPlugin var manifest = {
         { value: "bilibili", label: "Bilibili" },
         { value: "apple", label: "Apple Music" },
       ] },
-      { key: "webSongsMode", label: "web 歌曲", type: "radio", options: [
+      { key: "webSongsMode", label: "web 歌曲", group: "backend", type: "radio", options: [
         { label: "永不过期", value: "keep" },
         { label: "定期清理", value: "rotate" },
       ] },
-      { key: "webSongsRetentionDays", label: "保留天数", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
-      { key: "recommendPlatforms", label: "首页推荐平台", type: "multiselect", help: "选择在首页「平台精选」中显示哪些平台的歌单,未选中的平台不会出现在首页。默认全选。", options: [
+      { key: "webSongsRetentionDays", label: "保留天数", group: "backend", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
+      { key: "recommendPlatforms", label: "首页推荐平台", group: "recommend", type: "multiselect", help: "选择在首页「平台精选」中显示哪些平台的歌单,未选中的平台不会出现在首页。默认全选。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -94,9 +94,9 @@ globalThis.__mfPlugin var manifest = {
         { value: "bilibili", label: "Bilibili" },
         { value: "apple", label: "Apple Music" },
       ] },
-      { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
-      { key: "keywords", label: "搜索关键词", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
-      { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。默认空(搜索全部平台)。", options: [
+      { key: "homeCount", label: "平台首页歌单数", group: "recommend", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
+      { key: "keywords", label: "搜索关键词", group: "keyword", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
+      { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", group: "keyword", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。默认空(搜索全部平台)。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -110,8 +110,8 @@ globalThis.__mfPlugin var manifest = {
         { value: "bilibili", label: "Bilibili" },
         { value: "apple", label: "Apple Music" },
       ] },
-      { key: "minSongs", label: "歌单最少歌曲数", type: "number", default: 30, help: "歌单歌曲数量大于此值才保留入库,避免导入空歌单" },
-      { key: "filterPlatforms", label: "歌单筛选平台", type: "multiselect", help: "选择在歌单页「筛选歌单」下拉中显示哪些平台,未选中的平台不会出现在筛选列表。默认全选。", options: [
+      { key: "minSongs", label: "歌单最少歌曲数", group: "keyword", type: "number", default: 30, help: "歌单歌曲数量大于此值才保留入库,避免导入空歌单" },
+      { key: "filterPlatforms", label: "歌单筛选平台", group: "frontend", type: "multiselect", help: "选择在歌单页「筛选歌单」下拉中显示哪些平台,未选中的平台不会出现在筛选列表。默认全选。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },

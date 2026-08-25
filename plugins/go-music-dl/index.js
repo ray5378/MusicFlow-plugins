@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.24",
+    version: "1.2.25",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -56,7 +56,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.24/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.25/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -979,9 +979,28 @@ globalThis.__mfPlugin = {
                 }
                 // 写入本地歌单(固定 id 保证 upsert 幂等)
                 var localId = "pl-kw-" + pl.source + "-" + pl.id;
+                // 预加载本地曲库池以加速匹配(与私人歌单同步一致)
+                var kwPool = await loadLocalPool();
+                var kwMatchCache = new Map();
                 var songEntries = [];
+                var coverCandidates = [];
                 for (var si = 0; si < songs.length; si++) {
-                  songEntries.push({ songId: songs[si].id });
+                  var s = songs[si];
+                  // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
+                  var matchedSongId = matchInPool(kwPool, s.name, s.artist) || (await matchLocal(s.name, s.artist, kwMatchCache));
+                  if (matchedSongId) {
+                    songEntries.push({ songId: matchedSongId });
+                    coverCandidates.push(matchedSongId);
+                    continue;
+                  }
+                  // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
+                  songEntries.push({
+                    externalSongId: pl.source + ":" + s.id,
+                    externalTitle: s.name,
+                    externalArtist: s.artist,
+                    externalAlbum: s.album,
+                    externalDuration: (s.duration || 0) * 1000,
+                  });
                 }
                 await host.playlists.upsert(localId, {
                   name: pl.name || "",
@@ -989,6 +1008,7 @@ globalThis.__mfPlugin = {
                   sourceUrl: "gmdl://keyword/" + pl.source + "/" + pl.id,
                   externalId: pl.id,
                   entries: songEntries,
+                  coverSongId: coverCandidates[0] || null,
                 });
                 host.log("  已入库: " + (pl.name || "") + " (" + pl.source + "/" + pl.id + ", " + songs.length + " 首)");
               }

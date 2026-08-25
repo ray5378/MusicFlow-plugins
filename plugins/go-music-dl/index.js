@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.26",
+    version: "1.2.27",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -56,7 +56,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.26/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.27/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -983,8 +983,6 @@ globalThis.__mfPlugin = {
                 var kwMatchCache = new Map();
                 var songEntries = [];
                 var coverCandidates = [];
-                // 先做本地预匹配
-                var remoteToImport = [];
                 for (var si = 0; si < songs.length; si++) {
                   var s = songs[si];
                   // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
@@ -994,34 +992,15 @@ globalThis.__mfPlugin = {
                     coverCandidates.push(matchedSongId);
                     continue;
                   }
-                  // 2) 未命中:通过 host.playlists.importSongs 走后端导入管线(与前端手动点击加入库完全一致!)
-                  // 导入后 songId 存在,直接关联即可播放
-                  remoteToImport.push(s);
-                }
-                // 批量导入远程歌曲(和前端"加入库"走同一条管线:importOnlineSongs → 入库为可播在线歌曲)
-                if (remoteToImport.length > 0 && host.playlists.importSongs) {
-                  var importResult = await host.playlists.importSongs("go-music-dl", remoteToImport);
-                  host.log("  批量导入 " + remoteToImport.length + " 首远程歌曲:新增 " + importResult.added + ",去重 " + importResult.deduped + ",失败 " + importResult.failed);
-                  // 将导入结果中的 songId 关联到歌单条目
-                  var impSongs = importResult && importResult.songs ? importResult.songs : [];
-                  for (var ii = 0; ii < impSongs.length; ii++) {
-                    if (impSongs[ii] && impSongs[ii].id) {
-                      songEntries.push({ songId: impSongs[ii].id });
-                      coverCandidates.push(impSongs[ii].id);
-                    }
-                  }
-                } else if (remoteToImport.length > 0) {
-                  // fallback to legacy behavior: 仍用外部占位等待后台 auto-match
-                  for (var ri = 0; ri < remoteToImport.length; ri++) {
-                    var s = remoteToImport[ri];
-                    songEntries.push({
-                      externalSongId: pl.source + ":" + s.id,
-                      externalTitle: s.name,
-                      externalArtist: s.artist,
-                      externalAlbum: s.album,
-                      externalDuration: (s.duration || 0) * 1000,
-                    });
-                  }
+                  // 2) 未命中:写外部占位(externalSongId = source:id),由后台自动匹配
+                  //    upsertPluginPlaylist 会触发 matchPlaylistInBackground 补全为可播条目
+                  songEntries.push({
+                    externalSongId: pl.source + ":" + s.id,
+                    externalTitle: s.name,
+                    externalArtist: s.artist,
+                    externalAlbum: s.album,
+                    externalDuration: (s.duration || 0) * 1000,
+                  });
                 }
                 await host.playlists.upsert(localId, {
                   name: pl.name || "",

@@ -1,0 +1,138 @@
+name: auto-release
+
+# 自动发版:推送代码到 master → CI 校验(plugin-spec)通过后,自动打包插件并创建
+# GitHub Release,无需手动执行 gh release create / upload。
+#
+# 触发条件:
+#   1. master 分支 push(仅 plugins/<id>/ 下文件变更)
+#   2. 可手动触发(workflow_dispatch,指定插件 id)
+#
+# 工作流:
+#   1. 运行 node scripts/check.mjs <id> 校验插件契约
+#   2. 从 plugin.json 读取 version
+#   3. 检查该版本 Release 是否已存在(防重复)
+#   4. 打包为 tar.gz
+#   5. 创建 Git Tag + GitHub Release + 上传资产
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "plugins/go-music-dl/**"
+  workflow_dispatch:
+    inputs:
+      pluginId:
+        description: "插件 id(如 go-music-dl)"
+        required: false
+        default: "go-music-dl"
+
+concurrency:
+  group: auto-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 确定插件 ID
+        id: plugin
+        run: |
+          ID="${{ github.event.inputs.pluginId }}"
+          if [ -z "$ID" ]; then
+            # 从变更路径推断插件 id
+            CHANGED="$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} -- plugins/)"
+            ID="$(echo "$CHANGED" | grep -oP 'plugins/\K[^/]+' | sort -u | head -1)"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          echo "插件: $ID"
+
+      - name: 插件契约校验
+        run: |
+          ID="${{ steps.plugin.outputs.id }}"
+          if [ -z "$ID" ] || [ ! -f "plugins/$ID/plugin.json" ]; then
+            echo "没有检测到插件变更,跳过发版"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node scripts/check.mjs "$ID"
+
+      - name: 跳过发版
+        if: steps.plugin.outputs.skip == 'true'
+        run: echo "无变更,跳过"
+
+      - name: 读取版本号
+        id: version
+        if: steps.plugin.outputs.skip != 'true'
+        run: |
+          ID="${{ steps.plugin.outputs.id }}"
+          VERSION="$(node -e "process.stdout.write(require('./plugins/$ID/plugin.json').version)")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=${ID}-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "版本: $ID v$VERSION"
+
+      - name: 检查 Release 是否已存在
+        id: check
+        if: steps.plugin.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" &>/dev/null; then
+            echo "Release $TAG 已存在,跳过"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 打包插件
+        id: pack
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          ID="${{ steps.plugin.outputs.id }}"
+          bash scripts/pack.sh "$ID"
+          echo "archive=dist/$ID.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: 创建 Tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if ! git tag | grep -q "^${TAG}$"; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git tag "$TAG" "${{ github.sha }}"
+            git push origin "$TAG"
+          fi
+
+      - name: 创建 Release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ID="${{ steps.plugin.outputs.id }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="${{ steps.pack.outputs.archive }}"
+
+          # 从 git log 生成发布说明
+          NOTES="## 变更内容\n\n"
+          NOTES+="$(
+            git log --oneline --no-decorate "plugins/$ID/" | head -20 | while read line; do
+              echo "  - $line"
+            done
+          )"
+          NOTES+="\n\n---\n> 自动发版 by GitHub Actions (CI 校验通过后触发)"
+
+          gh release create "$TAG" \
+            --title "$ID v$VERSION" \
+            --notes "$NOTES" \
+            "$ARCHIVE"

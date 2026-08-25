@@ -4,6 +4,7 @@
   "plugins": [
     "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl/plugin.json",
     "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/listenbrainz/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lastfm/plugin.json"
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lastfm/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/playlist-cleaner/plugin.json"
   ]
 }

@@ -1,0 +1,45 @@
+{
+  "id": "playlist-cleaner",
+  "name": "歌单清理",
+  "version": "1.0.0",
+  "type": "sync",
+  "description": "一键清理低歌曲数歌单：可设置阈值，自动删除歌曲数量低于该值的歌单。支持每日定时自动清理和手动触发。",
+  "capabilities": [
+    "playlistCleanup"
+  ],
+  "defaultEnabled": false,
+  "minAppVersion": "1.7.39",
+  "longRunning": {
+    "runDailyJob": 120000
+  },
+  "permissions": [
+    "playlists:read",
+    "playlists:write"
+  ],
+  "author": "MusicFlow",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.0/playlist-cleaner.tar.gz",
+  "configSchema": [
+    {
+      "key": "minSongs",
+      "label": "最少歌曲数",
+      "type": "number",
+      "default": 5,
+      "required": true,
+      "help": "歌单歌曲数量小于或等于此值时会被清理删除。例如输入 5 会删除所有歌曲数 ≤ 5 的歌单。"
+    },
+    {
+      "key": "skipSourcePlaylists",
+      "label": "跳过平台同步歌单",
+      "type": "switch",
+      "default": true,
+      "help": "开启后，会跳过由平台插件（如 go-music-dl）同步来的歌单，只清理本地生成的歌单。"
+    },
+    {
+      "key": "skipRecommendPlaylists",
+      "label": "跳过推荐歌单",
+      "type": "switch",
+      "default": true,
+      "help": "开启后，会跳过每日推荐、本地推荐等系统推荐歌单，只清理其他歌单。"
+    }
+  ]
+}

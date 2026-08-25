@@ -1,0 +1,7 @@
+{
+  "name": "musicflow-plugin-playlist-cleaner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MusicFlow 歌单清理插件：一键清理低歌曲数歌单"
+}

@@ -29,6 +29,7 @@ const VALID_CAPS = [
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
   "recommendPlaylist",
   "playlistSync", "autoMatch",
+  "playlistCleanup",
   "lyricProvider", "coverProvider", "renderer", "scrobbler",
   "artistInfo",
 ];
@@ -62,6 +63,7 @@ const CAP_METHODS = {
   dailyPlaylist: ["runDailyJob"],
   localPlaylist: ["runDailyJob"],
   recommendPlaylist: ["runDailyJob"],
+  playlistCleanup: ["runDailyJob"],
   playlistSync: ["runSyncJob"],
   // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
 };

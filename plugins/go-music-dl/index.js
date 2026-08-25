@@ -13,11 +13,10 @@
 //    - 权限:只有 manifest.permissions 声明的能力(此处 net)可用。
 // ============================================================================
 
-globalThis.__mfPlugin = {
-  manifest: {
+globalThis.__mfPlugin var manifest = {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.32",
+    version: "1.2.33",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -135,6 +134,21 @@ globalThis.__mfPlugin = {
         throw new Error("HTTP " + (r.status == null ? "?" : r.status) + ": " + url + detail);
       }
       return r.body;
+    }
+
+    /** 有界缓存通用包装器:达到上限后自动清空,防止内存无限增长。
+     *  适用场景:matchLocal 的搜索结果缓存、跨歌单/跨关键词共享的临时数据。 */
+    function boundedCache(maxSize) {
+      var map = new Map();
+      return {
+        get: function(k) { return map.get(k); },
+        set: function(k, v) {
+          if (map.size >= maxSize) { map.clear(); }
+          map.set(k, v);
+        },
+        clear: function() { map.clear(); },
+        get size() { return map.size; },
+      };
     }
 
     /** go-music-dl 的 HTML 里属性值是 HTML-escaped 的(&#34; 等),还原之。 */
@@ -627,7 +641,7 @@ globalThis.__mfPlugin = {
      *  SYNC_WINDOW_MS 预算 / MAX_PLAYLISTS_PER_RUN 上限内,超了就存档收尾,下次继续。
      *  未命中本地的歌以外部占位写入,由后端 upsert 后自动触发的后台 auto-match
      *  (主进程、不受沙箱 15s 限制)继续本地/在线补全为可播条目。返回摘要串或 null。 */
-    async function syncMyPlaylists(opts) {
+    async function syncMyPlaylists(opts, pool, matchCache) {
       const c = host.config || {};
       if (c.importMyPlaylists === false) return null;
       const user = String(c.username || "").trim();
@@ -643,8 +657,6 @@ globalThis.__mfPlugin = {
       const srcs = ((c.sources && c.sources.length) ? c.sources : PRIVATE_SOURCES).filter((s) => PRIVATE_SOURCES.includes(s));
       if (!srcs.length) return null;
       const t0 = Date.now();
-      const matchCache = new Map(); // 调用内去重
-      const pool = await loadLocalPool(); // 池内匹配优先,池外回退逐曲搜索
       let srcIdx = (cursor && !cursor.done ? Number(cursor.srcIdx) || 0 : 0);
       let plIdx = (cursor && !cursor.done ? Number(cursor.plIdx) || 0 : 0);
       let processed = 0;
@@ -670,11 +682,11 @@ globalThis.__mfPlugin = {
             if (f.error) { host.log("拉取歌单歌曲失败 " + (f.pl.name || source) + ": " + f.error); plIdx++; continue; }
             try {
               const entries = [];
-              const coverCandidates = [];
+              var firstMatchId = null;
               for (const s of f.songs) {
                 // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
                 const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
-                if (localId) { entries.push({ songId: localId }); coverCandidates.push(localId); continue; }
+                if (localId) { entries.push({ songId: localId }); if (!firstMatchId) firstMatchId = localId; continue; }
                 // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
                 entries.push({
                   externalSongId: source + ":" + s.id,
@@ -689,7 +701,7 @@ globalThis.__mfPlugin = {
                 name: labelOf(source) + " · " + (f.pl.name || "我的歌单"),
                 description: "go-music-dl 我的私人歌单(" + labelOf(source) + "),每日自动同步",
                 entries,
-                coverSongId: coverCandidates[0] || null,
+                coverSongId: firstMatchId,
                 // 平台标签:前端据此显示平台徽标(网易云/QQ/酷狗/汽水);sourceUrl 标识来源。
                 sourcePlatform: source,
                 sourceUrl: "gmdl://mine/" + source + "/" + f.pl.id,
@@ -976,11 +988,20 @@ globalThis.__mfPlugin = {
       // 用户配置 keywords 后,每日自动搜索各平台匹配歌单,已入库(host.playlists.findBySource)
       // 的跳过,未入库的通过 host.playlists.upsert 写入本地库并标记 externalId。
       async runDailyJob(opts) {
+        // 整个定时任务共享一份本地曲库池和搜索结果缓存,减少重复加载和搜索。
+        var pool = null;
+        var matchCache = null;
+        try {
+          pool = await loadLocalPool();
+          matchCache = boundedCache(1000);
+        } catch (e) {
+          host.log("加载本地曲库池失败: " + (e && e.message ? e.message : e));
+        }
         // 手动关键词搜索入库时跳过私人歌单同步
         if (!opts || !opts.keywordOnly) {
           // 1) 私人歌单同步
           try {
-            await syncMyPlaylists(opts || {});
+            await syncMyPlaylists(opts || {}, pool, matchCache);
           } catch (e) {
             host.log("私人歌单同步失败: " + (e && e.message ? e.message : e));
           }
@@ -1012,18 +1033,16 @@ globalThis.__mfPlugin = {
                 }
                 // 写入本地歌单(固定 id 保证 upsert 幂等)
                 var localId = "pl-kw-" + pl.source + "-" + pl.id;
-                // 预加载本地曲库池以加速匹配(与私人歌单同步一致)
-                var kwPool = await loadLocalPool();
-                var kwMatchCache = new Map();
+                // 复用顶层 pool 和 matchCache,不再重复加载
                 var songEntries = [];
-                var coverCandidates = [];
+                var firstMatchId = null;
                 for (var si = 0; si < songs.length; si++) {
                   var s = songs[si];
                   // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
-                  var matchedSongId = matchInPool(kwPool, s.name, s.artist) || (await matchLocal(s.name, s.artist, kwMatchCache));
+                  var matchedSongId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
                   if (matchedSongId) {
                     songEntries.push({ songId: matchedSongId });
-                    coverCandidates.push(matchedSongId);
+                    if (!firstMatchId) firstMatchId = matchedSongId;
                     continue;
                   }
                   // 2) 未命中:写外部占位(externalSongId = source:id),由后台自动匹配
@@ -1042,7 +1061,7 @@ globalThis.__mfPlugin = {
                   sourceUrl: "gmdl://keyword/" + pl.source + "/" + pl.id,
                   externalId: pl.id,
                   entries: songEntries,
-                  coverSongId: coverCandidates[0] || null,
+                  coverSongId: firstMatchId,
                 });
                 host.log("  已入库: " + (pl.name || "") + " (" + pl.source + "/" + pl.id + ", " + songs.length + " 首)");
               }
@@ -1051,6 +1070,9 @@ globalThis.__mfPlugin = {
         } catch (e) {
           host.log("关键词搜索入库失败: " + (e && e.message ? e.message : e));
         }
+        // 释放大对象,帮助 QuickJS GC 回收内存
+        pool = null;
+        if (matchCache) { matchCache.clear(); matchCache = null; }
         return null;
       },
     };

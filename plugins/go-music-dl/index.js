@@ -56,7 +56,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.23/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -684,6 +684,22 @@ globalThis.__mfPlugin = {
       return "批次完成: " + processed + " 个(继续推进中)";
     }
 
+    // ===== playlistSearch:跨全部平台搜索歌单(结果可「加入库」) =====
+    const searchPlaylistsImpl = async (config, params) => {
+      const q = String((params && params.query) || "").trim();
+      if (!q) return { playlists: [] };
+      // 歌单搜索平台:调用方指定 → 插件声明的全部平台。不走歌曲搜索的
+      // pickSearchSources(≤5 截断)——歌单搜索由 go-music-dl 后端自身多源并发聚合,
+      // 一次请求即可带回全部平台结果;长耗时预算由 manifest.longRunning 声明兜底。
+      let sources = Array.isArray(params && params.sources) && params.sources.length
+        ? params.sources.filter((s) => typeof s === "string" && s)
+        : (manifest.platforms || []);
+      const qs = new URLSearchParams({ q, type: "playlist" });
+      for (const s of sources) qs.append("sources", s);
+      const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
+      return { playlists: parseSearchPlaylists(html) };
+    };
+
     return {
       async test(config) {
         const url = baseOf(config);
@@ -722,20 +738,6 @@ globalThis.__mfPlugin = {
       },
 
       // ===== playlistSearch:跨全部平台搜索歌单(结果可「加入库」) =====
-      const searchPlaylistsImpl = async (config, params) => {
-        const q = String((params && params.query) || "").trim();
-        if (!q) return { playlists: [] };
-        // 歌单搜索平台:调用方指定 → 插件声明的全部平台。不走歌曲搜索的
-        // pickSearchSources(≤5 截断)——歌单搜索由 go-music-dl 后端自身多源并发聚合,
-        // 一次请求即可带回全部平台结果;长耗时预算由 manifest.longRunning 声明兜底。
-        let sources = Array.isArray(params && params.sources) && params.sources.length
-          ? params.sources.filter((s) => typeof s === "string" && s)
-          : (manifest.platforms || []);
-        const qs = new URLSearchParams({ q, type: "playlist" });
-        for (const s of sources) qs.append("sources", s);
-        const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
-        return { playlists: parseSearchPlaylists(html) };
-      };
       async searchPlaylists(config, params) { return searchPlaylistsImpl(config, params); },
 
       // ===== songSearch:跨平台搜索单曲(结果可「加入库」为可播在线歌曲) =====

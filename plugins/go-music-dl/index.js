@@ -17,10 +17,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.22",
+    version: "1.2.23",
     type: "source",
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "playlistSearch",
@@ -53,7 +53,7 @@ globalThis.__mfPlugin = {
     // searchAlbums:专辑搜索同样按全部平台聚合(30s);searchSongs:歌曲搜索受 pickSearchSources ≤5 截断,15s。
     // recommend:首页「平台精选」实时拉取 + 酷狗预热重试,默认定 15s 不够,给 60s 兜底。
     longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000, searchAlbums: 30000, searchSongs: 15000, recommend: 60000 },
-    permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
+    permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl: "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/go-music-dl.tar.gz",
@@ -82,6 +82,7 @@ globalThis.__mfPlugin = {
       ] },
       { key: "webSongsRetentionDays", label: "保留天数", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
       { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
+      { key: "keywords", label: "搜索关键词", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
     ],
   },
 
@@ -721,7 +722,7 @@ globalThis.__mfPlugin = {
       },
 
       // ===== playlistSearch:跨全部平台搜索歌单(结果可「加入库」) =====
-      async searchPlaylists(config, params) {
+      const searchPlaylistsImpl = async (config, params) => {
         const q = String((params && params.query) || "").trim();
         if (!q) return { playlists: [] };
         // 歌单搜索平台:调用方指定 → 插件声明的全部平台。不走歌曲搜索的
@@ -734,7 +735,8 @@ globalThis.__mfPlugin = {
         for (const s of sources) qs.append("sources", s);
         const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
         return { playlists: parseSearchPlaylists(html) };
-      },
+      };
+      async searchPlaylists(config, params) { return searchPlaylistsImpl(config, params); },
 
       // ===== songSearch:跨平台搜索单曲(结果可「加入库」为可播在线歌曲) =====
       // 与 search() 同源(/music/search?type=song),但按新契约暴露为独立能力,
@@ -932,13 +934,58 @@ globalThis.__mfPlugin = {
       // 无需改动主项目。歌单以固定 id(pl-gmdl-mine-<source>-<id>) upsert,持久存在、不参与轮转。
       // 沙箱单次调用 15s 硬配额 → syncMyPlaylists 每次只推进一批(预算/数量双闸),进度存
       // gmdlMineCursor 跨日滚动覆盖全部歌单;手动刷新(force)可立即推进下一批。
+      //
+      // ===== 关键词搜索入库(同入口) =====
+      // 用户配置 keywords 后,每日自动搜索各平台匹配歌单,已入库(host.playlists.findBySource)
+      // 的跳过,未入库的通过 host.playlists.upsert 写入本地库并标记 externalId。
       async runDailyJob(opts) {
+        // 1) 私人歌单同步
         try {
-          return await syncMyPlaylists(opts || {});
+          await syncMyPlaylists(opts || {});
         } catch (e) {
           host.log("私人歌单同步失败: " + (e && e.message ? e.message : e));
-          return null;
         }
+        // 2) 关键词搜索入库
+        try {
+          const kw = (host.config && host.config.keywords || "").split("\n").map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+          if (kw.length > 0) {
+            for (var ki = 0; ki < kw.length; ki++) {
+              var query = kw[ki];
+              host.log("关键词搜索: " + query);
+              var result = await searchPlaylistsImpl(host.config, { query: query });
+              var playlists = result && result.playlists || [];
+              for (var pi = 0; pi < playlists.length; pi++) {
+                var pl = playlists[pi];
+                // 跳过已入库(按 sourcePlatform + externalId 查)
+                var existing = await host.playlists.findBySource(pl.source, pl.id);
+                if (existing) {
+                  host.log("  跳过已入库: " + pl.source + "/" + pl.id + " " + (pl.name || ""));
+                  continue;
+                }
+                // 拉取歌曲
+                var songsResult = await fetchPlaylistSongs(host.config, pl.source, pl.id);
+                var songs = songsResult && (songsResult.songs || []) || [];
+                // 写入本地歌单(固定 id 保证 upsert 幂等)
+                var localId = "pl-kw-" + pl.source + "-" + pl.id;
+                var songEntries = [];
+                for (var si = 0; si < songs.length; si++) {
+                  songEntries.push({ songId: songs[si].id });
+                }
+                await host.playlists.upsert(localId, {
+                  name: pl.name || "",
+                  sourcePlatform: pl.source,
+                  sourceUrl: "gmdl://keyword/" + pl.source + "/" + pl.id,
+                  externalId: pl.id,
+                  entries: songEntries,
+                });
+                host.log("  已入库: " + (pl.name || "") + " (" + pl.source + "/" + pl.id + ", " + songs.length + " 首)");
+              }
+            }
+          }
+        } catch (e) {
+          host.log("关键词搜索入库失败: " + (e && e.message ? e.message : e));
+        }
+        return null;
       },
     };
   },

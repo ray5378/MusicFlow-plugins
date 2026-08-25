@@ -82,7 +82,7 @@ globalThis.__mfPlugin = {
       ] },
       { key: "webSongsRetentionDays", label: "保留天数", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
       { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
-      { key: "keywords", label: "搜索关键词", type: "tag-input", help: "输入关键词后按回车添加为标签,每个标签就是一个关键词,点击标签上的 ✕ 可删除。插件每天自动搜索所有平台匹配的歌单并入库,已入库的跳过" },
+      { key: "keywords", label: "搜索关键词", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
     ],
   },
 

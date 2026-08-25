@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.30",
+    version: "1.2.31",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -84,6 +84,20 @@ globalThis.__mfPlugin = {
       { key: "homeCount", label: "平台首页歌单数", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
       { key: "keywords", label: "搜索关键词", type: "text", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
       { key: "minSongs", label: "歌单最少歌曲数", type: "number", default: 30, help: "歌单歌曲数量大于此值才保留入库,避免导入空歌单" },
+      { key: "recommendPlatforms", label: "首页推荐平台", type: "multiselect", help: "选择在首页「平台精选」中显示哪些平台的歌单,未选中的平台不会出现在首页。默认全选。", options: [
+        { value: "netease", label: "网易云" },
+        { value: "qq", label: "QQ 音乐" },
+        { value: "kugou", label: "酷狗" },
+        { value: "kuwo", label: "酷我" },
+        { value: "migu", label: "咪咕" },
+        { value: "qianqian", label: "千千" },
+        { value: "soda", label: "汽水" },
+        { value: "fivesing", label: "5sing" },
+        { value: "jamendo", label: "Jamendo" },
+        { value: "joox", label: "JOOX" },
+        { value: "bilibili", label: "Bilibili" },
+        { value: "apple", label: "Apple Music" },
+      ] },
       { key: "filterPlatforms", label: "歌单筛选平台", type: "multiselect", help: "选择在歌单页「筛选歌单」下拉中显示哪些平台,未选中的平台不会出现在筛选列表。默认全选。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },

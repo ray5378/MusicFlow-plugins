@@ -16,7 +16,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.40",
+    version: "1.2.41",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -55,7 +55,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.39/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.41/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -756,6 +756,70 @@ globalThis.__mfPlugin = { manifest: {
       return { playlists: parseSearchPlaylists(html) };
     };
 
+    // ================== 本地库轮转(非网易平台「平台精选」数据来源) ==================
+    // 背景:go-music-dl 上游 /music/recommend 只有网易云每次返回个性化新歌单(自动
+    // 刷新);QQ/酷狗/酷我等平台要么返回固定的编辑精选/热门列表、要么根本不提供精选
+    // 歌单 → 首页一直显示同一批,体验像「卡死」。
+    //
+    // 策略:非网易平台不再依赖上游,改从「本地库」按平台轮转取歌单。本地库由每日同步
+    // 持续充实(路径 A 上游精选入库 / 路径 B 私人歌单 + 关键词搜索),歌单充足,能保证
+    // 每次刷新首页看到的歌单都不同,等效「自动刷新」。网易云保持上游(它自己会刷新)。
+    //
+    // 轮转实现:按 source_platform 分组,每次调用从「上次起始位 + 1」环形取 homeCount
+    // 个;起始位持久化在 host.storage,跨调用推进。后端首页有 5 分钟 TTL 缓存,缓存
+    // 过期后重新调 recommend() → 起始位前进 → 首页展示下一批,周而复始覆盖本地全库。
+    //
+    // 返回形状与上游渠道一致,但每张歌单带 local:true 标记:
+    //   - id = 本地歌单 UUID,前端据此直接播放(不走远端导入);
+    //   - cover 留空、trackCount 留空,由后端 /v1/recommend 按本地库补齐
+    //     (getCoverArt 封面 + song_count 曲目数)。
+    async function localRotationChannels(config, homeCount, excludeSource) {
+      const ROTATION_KEY = "gmdlRecommendLocalRotation";
+      let rows = [];
+      try {
+        rows = await host.playlists.list(); // 本地全量歌单(含每日导入/私人/关键词)
+      } catch { /* 本地库不可读则本次无本地渠道 */ }
+      const bySource = {};
+      for (const r of rows) {
+        const src = r && r.source_platform;
+        if (!src || src === excludeSource) continue;
+        (bySource[src] = bySource[src] || []).push(r);
+      }
+      let rot = {};
+      try {
+        const saved = await host.storage.get(ROTATION_KEY);
+        if (saved && typeof saved === "object") rot = saved;
+      } catch { /* 忽略 */ }
+      const channels = [];
+      for (const src of Object.keys(bySource)) {
+        const pool = bySource[src];
+        const off = (rot[src] || 0) % pool.length;   // 本批起始位
+        rot[src] = (off + 1) % pool.length;          // 推进 → 下次刷新换一批
+        const playlists = [];
+        for (let i = 0; i < homeCount && playlists.length < pool.length; i++) {
+          const p = pool[(off + i) % pool.length];   // 环形取,池小于 homeCount 时取全部
+          playlists.push({
+            id: p.id,                // 本地歌单 UUID
+            source: src,
+            name: p.name || "",
+            creator: "",
+            cover: "",               // 封面由后端按 coverArt 补齐
+            trackCount: "",
+            link: "",
+            local: true,             // 标记:本地库歌单,前端直接播放
+          });
+        }
+        channels.push({
+          source: src,
+          name: (manifest.platformLabels && manifest.platformLabels[src]) || src,
+          count: playlists.length,
+          playlists,
+        });
+      }
+      try { await host.storage.set(ROTATION_KEY, rot); } catch { /* 忽略 */ }
+      return channels;
+    }
+
     return {
       async test(config) {
         const url = baseOf(config);
@@ -822,55 +886,114 @@ globalThis.__mfPlugin = { manifest: {
         return { albums: parseSearchAlbums(html) };
       },
 
-      async recommend(config) {
-        // 公开推荐歌单(路径 A,轮转清理) —— 仅返回公开「平台精选」频道。
-        // 「我的私人歌单」改走路径 B(持久歌单,每日自动同步),见 runDailyJob(),
-        // 不再经推荐频道,因此不会被每日轮转清理。
+      async recommend(config, opts) {
+        // ================== 首页「平台精选」数据来源(2026-08 修订) ==================
+        // 上游 /music/recommend 只有网易云每次返回个性化新歌单(自动刷新);
+        // QQ/酷狗/酷我等平台要么返回固定编辑精选、要么根本不提供精选歌单。
         //
-        // 防「酷狗精选栏消失」:go-music-dl 服务端对部分平台(典型是酷狗)的推荐
-        // tab 常需「预热」几次才返回非空歌单,单次抓取常拿到空桶 —— 空分区会被
-        // 前端过滤掉,表现为首页该平台精选整栏消失。因此这里做有界重试:只要有
-        // 空分区就重抓(沙箱不提供 setTimeout,间隔由每次 /music/recommend 往返
-        // 自然给出),全部分区非空即停;重试后仍空的分区用「上次成功」持久化快照
-        // 兜底,确保精选栏不消失。预算由 manifest.longRunning.recommend(60s)兜底。
+        // 统一策略(网易云除外):
+        //   1) 网易云:永远走上游(个性化,每次刷新不同),保留预热重试 + 快照兜底;
+        //   2) 其它平台:从本地库按平台轮转取歌单(localRotationChannels),每次刷新
+        //      换一批,首页动态变化,不再被上游固定列表「卡死」。
+        //   3) 例外——路径 A 每日同步:后端 syncAllRecommendPlaylists 需要「真实上游
+        //      列表」才能入库/清理,会传 { mode: "sync" }。此时全平台仍走上游抓取,
+        //      同步入库、清理逻辑与原版完全一致,不受首页轮转影响。
+        const SYNC_MODE = !!(opts && opts.mode === "sync");
         const RECOMMEND_RETRIES = 2;         // 首抓 + 最多 2 次重试
         const RECOMMEND_TIMEOUT = 20000;     // 首抓 20s
         const RECOMMEND_RETRY_TIMEOUT = 15000; // 重试 15s(压住总墙钟,避开 60s 预算)
         const CACHE_KEY = "gmdlRecommendChannels";
+        // 快照兜底上限:超过该时长(ms)的旧快照不再用于补齐非空分区。
+        // 过去逻辑是「全部非空才写缓存」,一旦某平台某次空桶,旧快照被永久锁死,
+        // 即使上游已返回新数据也不更新。现在改为按平台独立更新 + 快照带时间戳,
+        // 只要本次拉到新的非空内容就用新的覆盖;旧快照仅临时兜底且很快过期,
+        // 从而打破「一空桶就显示旧」的锁死。
+        const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 1000; // 12 分钟
 
-        let channels = [];
-        for (let attempt = 0; attempt <= RECOMMEND_RETRIES; attempt++) {
-          const html = await httpText(
-            baseOf(config) + "/music/recommend",
-            attempt === 0 ? RECOMMEND_TIMEOUT : RECOMMEND_RETRY_TIMEOUT
-          );
-          channels = parseRecommendPlaylists(html);
-          // 全部分区都有歌单即视为预热完成;空数组(页面/网络异常)不再空转。
-          if (channels.length > 0 && channels.every((c) => c.playlists.length > 0)) break;
-        }
-
-        // 兜底:仍有空分区 → 用「上次成功」快照补齐,避免精选栏消失。
+        // 读取上次快照,按平台缓存带时间戳;兼容旧格式(无 ts 的纯数组)。
+        let snapshot = [];
         try {
           const cached = await host.storage.get(CACHE_KEY);
-          if (Array.isArray(cached) && cached.length) {
-            const bySource = {};
-            for (const c of cached) {
-              if (c && c.source && (c.playlists || []).length) bySource[c.source] = c.playlists;
-            }
-            if (Object.keys(bySource).length) {
-              for (const ch of channels) {
-                if (!ch.playlists.length && bySource[ch.source]) {
-                  ch.playlists = bySource[ch.source].slice();
-                }
+          if (Array.isArray(cached)) snapshot = cached;
+        } catch { /* 存储不可用则仅依赖本次实时结果 */ }
+        const now = Date.now();
+        const oldBySource = {};
+        for (const c of snapshot) {
+          if (!c || !c.source || !Array.isArray(c.playlists)) continue;
+          const age = c.ts ? now - c.ts : Infinity; // 旧格式视为令牌立即失效
+          if (age <= SNAPSHOT_MAX_AGE_MS && c.playlists.length) oldBySource[c.source] = c.playlists;
+        }
+
+        // ---- 上游 /music/recommend 抓取(预热重试) ----
+        // 防「酷狗精选栏消失」:go-music-dl 服务端对部分平台(典型是酷狗)的推荐
+        // tab 常需「预热」几次才返回非空歌单,单次抓取常拿到空桶。这里做有界重试:
+        // 全部分区非空即停;重试后仍空的分区用「上次成功」快照兜底。预算由
+        // manifest.longRunning.recommend(60s)兜底。
+        let upstream = []; // 本次上游真实返回的渠道(可能为空/部分为空)
+        try {
+          for (let attempt = 0; attempt <= RECOMMEND_RETRIES; attempt++) {
+            const html = await httpText(
+              baseOf(config) + "/music/recommend",
+              attempt === 0 ? RECOMMEND_TIMEOUT : RECOMMEND_RETRY_TIMEOUT
+            );
+            upstream = parseRecommendPlaylists(html);
+            if (upstream.length > 0 && upstream.every((c) => c.playlists.length > 0)) break;
+          }
+          // 兜底:仍有空分区 → 用「该平台/本次新增」带时间戳的快照补齐,避免精选栏消失。
+          if (upstream.length > 0) {
+            for (const ch of upstream) {
+              if (!ch.playlists.length && oldBySource[ch.source]) {
+                ch.playlists = oldBySource[ch.source].slice();
               }
             }
           }
-        } catch { /* 存储不可用则仅依赖本次实时结果 */ }
+        } catch (e) {
+          // 上游不可达:同步模式必须把错误抛给路径 A(入库任务要能感知失败);
+          // 首页展示模式则降级为「仅本地轮转」,不让网易云故障拖垮整页。
+          if (SYNC_MODE) throw e;
+          upstream = [];
+        }
 
-        // 全部非空才算一份「成功快照」,保存供下次兜底——避免把好缓存写坏。
-        const allFilled = channels.length > 0 && channels.every((c) => c.playlists.length > 0);
-        if (allFilled) {
-          try { await host.storage.set(CACHE_KEY, channels); } catch { /* 忽略 */ }
+        let channels;
+        if (SYNC_MODE) {
+          // ---------- 路径 A 每日同步:全平台走上游(保持原逻辑) ----------
+          // 同步入库/清理依赖「真实上游列表」,非网易平台不能用本地轮转替代。
+          channels = upstream;
+          // 落在当前这次结果里的快照(不论新数据还是兜底数据)作为下次兜底来源。
+          if (channels.length > 0) {
+            const fresh = channels.map((ch) => ({
+              source: ch.source,
+              name: ch.name,
+              count: ch.count,
+              playlists: (ch.playlists || []).slice(),
+              ts: now,
+            }));
+            try { await host.storage.set(CACHE_KEY, fresh); } catch { /* 忽略 */ }
+          }
+        } else {
+          // ---------- 首页展示:网易云上游 + 其它平台本地库轮转 ----------
+          // 网易云渠道:本次上游拿到就用本次;空/失败则用未过期的旧快照兜底,
+          // 保住网易云精选栏(它不会从本地库轮转,必须保上游)。
+          let netease = upstream.find((c) => c.source === "netease");
+          if ((!netease || !netease.playlists.length) && oldBySource["netease"] && oldBySource["netease"].length) {
+            netease = netease || { source: "netease", name: (manifest.platformLabels && manifest.platformLabels.netease) || "netease", count: 0, playlists: [] };
+            netease.playlists = oldBySource["netease"].slice();
+            netease.count = netease.playlists.length;
+          }
+          // 网易云快照独立更新;非网易平台不再进快照(本地库始终有新数据,无需兜底)。
+          const freshSnap = snapshot.filter((c) => c.source !== "netease");
+          if (netease && netease.playlists.length) {
+            freshSnap.push({ source: "netease", name: netease.name, count: netease.count, playlists: (netease.playlists || []).slice(), ts: now });
+          }
+          try { await host.storage.set(CACHE_KEY, freshSnap); } catch { /* 忽略 */ }
+
+          // 本地库轮转渠道(排除网易云,统一覆盖其它所有平台)。
+          const raw = parseInt(String((config && config.homeCount) != null ? config.homeCount : 6), 10);
+          const homeCount = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 50) : 6;
+          const local = await localRotationChannels(config, homeCount, "netease");
+          channels = [];
+          if (netease && netease.playlists.length) channels.push(netease);
+          channels = channels.concat(local);
         }
 
         // 按 recommendPlatforms 配置过滤首页展示的平台。

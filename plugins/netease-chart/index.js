@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.0.0",
+    version: "1.0.1",
     type: "recommender",
     description:
       "自动抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地音乐库。对每首歌曲自动匹配本地曲库，未匹配的通过在线源补全或写入外部占位条目，由后端auto-match继续补全为可播条目。支持首页固定展示。",
@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.0.0/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.0.1/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartId",
@@ -94,10 +94,10 @@ globalThis.__mfPlugin = {
       }
     }
 
-    /** 从网易云 track 的 ar 数组中提取歌手名串 */
-    function parseArtists(ar) {
-      if (!Array.isArray(ar) || !ar.length) return "";
-      return ar
+    /** 从网易云 track 的 artists 数组中提取歌手名串 */
+    function parseArtists(artists) {
+      if (!Array.isArray(artists) || !artists.length) return "";
+      return artists
         .map(function (a) {
           return String(a.name || "").trim();
         })
@@ -179,13 +179,13 @@ globalThis.__mfPlugin = {
           return "网易云榜单抓取失败: " + (e.message || e);
         }
 
-        if (!data || data.code !== 200 || !data.playlist || !data.playlist.tracks) {
+if (!data || !data.result || !data.result.tracks) {
           var code = data && data.code;
           host.log("网易云榜单API返回格式异常: code=" + code);
           return "网易云榜单数据格式异常 (code=" + code + ")";
         }
 
-        var tracks = data.playlist.tracks;
+        var tracks = data.result.tracks;
         host.log("网易云" + chartName + "API返回 " + tracks.length + " 首歌曲");
 
         // 2. 逐曲匹配
@@ -199,9 +199,9 @@ globalThis.__mfPlugin = {
           var title = String(track.name || "").trim();
           if (!title) continue;
 
-          var artist = parseArtists(track.ar);
-          var album = track.al ? String(track.al.name || "").trim() : "";
-          var duration = Number(track.dt || 0); // 网易云直接用 ms
+          var artist = parseArtists(track.artists);
+          var album = track.album ? String(track.album.name || "").trim() : "";
+          var duration = Number(track.duration || 0); // 网易云直接用 ms
           var songId = String(track.id || "").trim();
 
           var localId = null;

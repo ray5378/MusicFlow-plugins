@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.0.0",
+    version: "1.0.1",
     type: "recommender",
     description:
       "自动抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地音乐库。对每首歌曲自动匹配本地曲库，未匹配的通过在线源补全或写入外部占位条目，由后端auto-match继续补全为可播条目。支持首页固定展示。",
@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.0.0/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.0.1/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartId",
@@ -213,13 +213,13 @@ globalThis.__mfPlugin = {
           return "QQ音乐榜单抓取失败: " + (e.message || e);
         }
 
-        if (!data || data.code !== 0 || !data.data || !data.data.songlist) {
+        if (!data || data.code !== 0 || !data.songlist) {
           var code = data && data.code;
           host.log("QQ音乐榜单API返回格式异常: code=" + code);
           return "QQ音乐榜单数据格式异常 (code=" + code + ")";
         }
 
-        var songs = data.data.songlist;
+        var songs = data.songlist;
         host.log("QQ音乐" + chartName + "API返回 " + songs.length + " 首歌曲");
 
         // 2. 逐曲匹配

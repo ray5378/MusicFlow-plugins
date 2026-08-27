@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "kugou-chart",
     name: "酷狗榜单",
-    version: "1.0.0",
+    version: "1.0.1",
     type: "recommender",
     description:
       "自动抓取酷狗排行榜（TOP500、飙升榜、网络红歌榜、DJ热歌榜）并同步到本地音乐库。对每首歌曲自动匹配本地曲库，未匹配的通过在线源补全或写入外部占位条目，由后端auto-match继续补全为可播条目。支持首页固定展示。",
@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/kugou-chart-v1.0.0/kugou-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/kugou-chart-v1.0.1/kugou-chart.tar.gz",
     configSchema: [
       {
         key: "chartId",
@@ -196,20 +196,20 @@ globalThis.__mfPlugin = {
           var url = KUGOU_API_BASE + "/rank/info/?rankid=" + rankid + "&page=" + page + "&json=true";
           try {
             var data = await fetchJson(url);
-            if (data && data.infos && Array.isArray(data.infos)) {
-              allSongs = allSongs.concat(data.infos);
+            if (data && data.songs && Array.isArray(data.songs.list)) {
+              allSongs = allSongs.concat(data.songs.list);
               host.log(
                 "第" +
                   page +
                   "页获取 " +
-                  data.infos.length +
+                  data.songs.list.length +
                   " 首, 累计 " +
                   allSongs.length +
                   " 首(" +
                   chartName +
                   ")"
               );
-              if (data.infos.length < pageSize) break;
+              if (data.songs.list.length < pageSize) break;
             }
           } catch (e) {
             host.log("第" + page + "页获取失败: " + (e.message || e));
@@ -229,9 +229,9 @@ globalThis.__mfPlugin = {
           if (!title) continue;
 
           var artist = parseArtist(item.authors);
-          var album = String(item.albumname || "").trim();
+          var album = String(item.album_name || "").trim();
           var duration = Number(item.duration || 0) * 1000;
-          var hash = String(item.hash || "").trim();
+          var hash = String(item.hash || item.filehash || "").trim();
 
           var localId = null;
           try {

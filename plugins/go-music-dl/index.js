@@ -57,7 +57,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.3.0/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.4.0/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -97,6 +97,7 @@ globalThis.__mfPlugin = { manifest: {
         { value: "apple", label: "Apple Music" },
       ] },
       { key: "homeCount", label: "平台首页歌单数", group: "recommend", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
+      { key: "sortOrder", label: "首页显示顺序", group: "recommend", type: "number", default: 10, help: "go-music-dl 本身在首页的显示顺序,数值越小越靠前。其他推荐歌单插件(QQ/酷狗/网易云榜单)各自有自己的排序值(1~100,默认 10)" },
       { key: "includeRecommendPlaylists", label: "包含其他推荐歌单", group: "recommend", type: "switch", default: true, help: "开启后,首页「平台精选」会包含其他推荐歌单插件(如QQ音乐榜单/酷狗榜单/网易云榜单)的推荐内容" },
       { key: "sortBySortOrder", label: "按排序顺序排列", group: "recommend", type: "switch", default: true, help: "开启后,所有平台分区按各插件配置的「首页显示顺序」排列;关闭则按插件注册顺序排列" },
       { key: "keywords", label: "搜索关键词", group: "keyword", type: "text", default: "抖音\n热门\n民谣\n经典", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
@@ -926,6 +927,7 @@ globalThis.__mfPlugin = { manifest: {
         for (const ch of channels) {
           ch.playlists = ch.playlists.slice(0, homeCount);
           ch.count = ch.playlists.length;
+          ch.sortOrder = Number(ch.sortOrder) || Number(config.sortOrder) || 10;
         }
 
         // --------------------------

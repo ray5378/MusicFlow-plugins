@@ -160,6 +160,14 @@
       "help": "开启后,首页「平台精选」会包含其他推荐歌单插件(如QQ音乐榜单/酷狗榜单/网易云榜单)的推荐内容"
     },
     {
+      "key": "sortOrder",
+      "label": "首页显示顺序",
+      "group": "recommend",
+      "type": "number",
+      "default": 10,
+      "help": "go-music-dl 本身在首页的显示顺序,数值越小越靠前。其他推荐歌单插件(QQ/酷狗/网易云榜单)各自有自己的排序值(1~100,默认 10)"
+    },
+    {
       "key": "sortBySortOrder",
       "label": "按排序顺序排列",
       "group": "recommend",

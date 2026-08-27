@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.0",
+    version: "1.6.1",
     type: "recommender",
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
@@ -29,7 +29,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.6.0/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.6.1/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",

@@ -31,28 +31,27 @@ globalThis.__mfPlugin = {
       {
         key: "rankIds",
         label: "选择榜单（可多选）",
-        type: "tag-input",
+        type: "multiselect",
         required: true,
-        default: "8888",
-        help: "输入榜单ID后按回车添加。可选ID: 8888=TOP500, 6666=飙升榜, 23784=网络红歌榜, 24971=DJ热歌榜。TOP500共500首，自动分5页拉取。",
-      },
-      {
-        key: "pageSize",
-        label: "每页数量",
-        type: "number",
-        default: 100,
-        help: "每页获取多少首歌曲，TOP500需要分5×100=500首。",
+        options: [
+          { "value": "8888", "label": "酷狗TOP500" },
+          { "value": "6666", "label": "飙升榜" },
+          { "value": "23784", "label": "网络红歌榜" },
+          { "value": "24971", "label": "DJ热歌榜" }
+        ],
+        default: ["8888"],
+        help: "选择要同步到本地音乐库的酷狗榜单，可以多选",
       },
       {
         key: "maxPages",
         label: "最多拉页数",
         type: "number",
-        default: 5,
-        help: "最多获取多少页，TOP500设置5页就能拉完整500首。",
+        default: 17,
+        help: "TOP500需要 17×30=510 才能拉满约 500 首，不建议改小",
       },
     ],
     documentation:
-      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n### 配置说明\n- 「选择榜单」输入榜单ID后按回车添加，可添加多个；\n- TOP500需要设置`maxPages=5`才能拉满500首；\n- 首页按所选榜单独立展示推荐分区。",
+      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\nAPI 每页固定返回 30 首，TOP500 需要 17 页拉满。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 首页按所选榜单独立展示推荐分区。",
   },
 
   create(host) {
@@ -112,17 +111,17 @@ globalThis.__mfPlugin = {
     }
 
     /** 抓取单个榜单所有页 */
-    async function fetchAllPages(rankid, pageSize, maxPages) {
+    async function fetchAllPages(rankid, maxPages) {
       var allSongs = [];
       for (var page = 1; page <= maxPages; page++) {
         var url = KUGOU_API_BASE + "/rank/info/?rankid=" + rankid + "&page=" + page + "&json=true";
         var data = await fetchJson(url);
         if (!data || !data.songs || !Array.isArray(data.songs.list)) break;
         var pageSongs = data.songs.list;
+        // API 固定每页 30 首，空页说明已到末尾
+        if (pageSongs.length === 0) break;
         allSongs = allSongs.concat(pageSongs);
-        host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " 第" + page + "页获取 " + pageSongs.length + " 首, 累计 " + allSongs.length + " 首");
-        // 如果本页小于请求的 pageSize，说明是最后一页，停止
-        if (pageSongs.length < pageSize) break;
+        host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " 第" + page + "页获取 " + pageSongs.length + " 首, 累计 " + allSongs.length + " 首(共" + (data.songs.total || "?") + "首)");
       }
       return allSongs;
     }
@@ -153,21 +152,15 @@ globalThis.__mfPlugin = {
       return ["8888"];
     }
 
-    function getPageSize(config) {
-      var v = Number(config && config.pageSize);
-      return Number.isFinite(v) && v > 0 ? v : 100;
-    }
-
     function getMaxPages(config) {
       var v = Number(config && config.maxPages);
-      return Number.isFinite(v) && v > 0 ? v : 5;
+      return Number.isFinite(v) && v > 0 ? v : 17;
     }
 
     return {
       /** 首页推荐：按所选榜单独立展示 */
       async recommend(config) {
         var rankIds = parseRankIds(config);
-        var pageSize = getPageSize(config);
         var maxPages = getMaxPages(config);
         var cache = new Map();
         var playlists = [];
@@ -175,7 +168,7 @@ globalThis.__mfPlugin = {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);
           try {
-            var allSongs = await fetchAllPages(rid, pageSize, maxPages);
+            var allSongs = await fetchAllPages(rid, maxPages);
             var entries = [];
             for (var j = 0; j < allSongs.length; j++) {
               var result = await processItem(allSongs[j], cache);
@@ -198,7 +191,6 @@ globalThis.__mfPlugin = {
       runDailyJob: async function () {
         var config = host.config || {};
         var rankIds = parseRankIds(config);
-        var pageSize = getPageSize(config);
         var maxPages = getMaxPages(config);
         var cache = new Map();
         var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
@@ -207,7 +199,7 @@ globalThis.__mfPlugin = {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);
           try {
-            var allSongs = await fetchAllPages(rid, pageSize, maxPages);
+            var allSongs = await fetchAllPages(rid, maxPages);
             var entries = [];
             var matched = 0, online = 0, external = 0;
             for (var j = 0; j < allSongs.length; j++) {

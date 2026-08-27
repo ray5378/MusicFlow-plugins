@@ -84,8 +84,8 @@ jobs:
             TAG="${ID}-v${VERSION}"
             echo "版本: $ID v$VERSION (tag: $TAG)"
 
-            # 检查 Release 是否已存在
-            if gh release view "$TAG" --repo "${{ github.repository }}" &>/dev/null; then
+            # 检查 Release 是否已存在（捕获退出码避免 set -e 终止脚本）
+            if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
               echo "Release $TAG 已存在,跳过 $ID"
               continue
             fi
@@ -99,23 +99,28 @@ jobs:
               git config user.name "github-actions"
               git config user.email "github-actions@github.com"
               git tag "$TAG" "${{ github.sha }}"
-              git push origin "$TAG" >/dev/null 2>&1
+              git push origin "$TAG" >/dev/null 2>&1 || true
             fi
 
-            # 生成发布说明
+            # 生成发布说明（注意：head 会关闭管道导致 SIGPIPE，加 || true 避免退出）
             NOTES="## 变更内容\n\n"
             NOTES+="$(
-              git log --oneline --no-decorate "plugins/$ID/" | head -20 | while read line; do
-                echo "  - $line"
-              done
+              git log --oneline --no-decorate "plugins/$ID/" | head -20 || true
             )"
             NOTES+="\n\n---\n> 自动发版 by GitHub Actions (CI 校验通过后触发)"
 
-            # 创建 Release (输出重定向避免 GitHub Actions runner SIGPIPE 141)
-            gh release create "$TAG" \
+            # 创建 Release（捕获退出码避免 set -e 终止）
+            if ! gh release create "$TAG" \
               --title "$ID v$VERSION" \
               --notes "$NOTES" \
-              "$ARCHIVE" >/dev/null 2>&1
+              "$ARCHIVE" >/dev/null 2>&1; then
+              echo "警告: gh release create 失败,重试一次..."
+              sleep 3
+              gh release create "$TAG" \
+                --title "$ID v$VERSION" \
+                --notes "$NOTES" \
+                "$ARCHIVE" >/dev/null 2>&1 || true
+            fi
 
             echo "$ID 发版完成: $TAG"
           done

@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.1.0",
+    version: "1.1.1",
     type: "recommender",
     description:
       "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.1.0/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.1.1/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -171,6 +171,15 @@ globalThis.__mfPlugin = {
         var cache = new Map();
         var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
         var successCount = 0;
+
+        // 清理 v1.0.x 遗留的固定歌单 id: pl-netease-chart
+        try {
+          await host.playlists.delete("pl-netease-chart");
+          host.log("清理旧版遗留固定歌单: pl-netease-chart");
+        } catch (e) {
+          // 不存在忽略
+        }
+
         for (var i = 0; i < chartIds.length; i++) {
           var cid = chartIds[i];
           try {

@@ -195,6 +195,15 @@ globalThis.__mfPlugin = {
         var cache = new Map();
         var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
         var successCount = 0;
+
+        // 清理 v1.0.x 遗留的固定歌单 id: pl-kugou-chart
+        try {
+          await host.playlists.delete("pl-kugou-chart");
+          host.log("清理旧版遗留固定歌单: pl-kugou-chart");
+        } catch (e) {
+          // 不存在忽略
+        }
+
         for (var i = 0; i < rankIds.length; i++) {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);

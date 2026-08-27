@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.1.0",
+    version: "1.1.1",
     type: "recommender",
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.1.0/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.1.1/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -186,6 +186,15 @@ globalThis.__mfPlugin = {
         var cache = new Map();
         var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
         var successCount = 0;
+
+        // 清理 v1.0.x 遗留的固定歌单 id: pl-qq-chart
+        try {
+          await host.playlists.delete("pl-qq-chart");
+          host.log("清理旧版遗留固定歌单: pl-qq-chart");
+        } catch (e) {
+          // 不存在忽略
+        }
+
         for (var i = 0; i < chartIds.length; i++) {
           var cid = chartIds[i];
           try {

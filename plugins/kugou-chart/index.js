@@ -14,10 +14,10 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "kugou-chart",
     name: "酷狗榜单",
-    version: "1.1.1",
+    version: "1.1.2",
     type: "recommender",
     description:
-      "抓取酷狗排行榜（TOP500、飙升榜、网络红歌榜、DJ热歌榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。TOP500自动分页拉取完整500首。",
+      "抓取酷狗排行榜（TOP500、飙升榜、网络红歌榜、DJ热歌榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。TOP500使用V3 API一次拉满全部500首。",
     capabilities: ["recommend", "recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.39",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/kugou-chart-v1.1.1/kugou-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/kugou-chart-v1.1.2/kugou-chart.tar.gz",
     configSchema: [
       {
         key: "rankIds",
@@ -42,16 +42,9 @@ globalThis.__mfPlugin = {
         default: ["8888"],
         help: "选择要同步到本地音乐库的酷狗榜单，可以多选",
       },
-      {
-        key: "maxPages",
-        label: "最多拉页数",
-        type: "number",
-        default: 17,
-        help: "TOP500需要 17×30=510 才能拉满约 500 首，不建议改小",
-      },
     ],
     documentation:
-      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\nAPI 每页固定返回 30 首，TOP500 需要 17 页拉满。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 首页按所选榜单独立展示推荐分区。",
+      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n使用 V3 API 一次拉取全部歌曲，无需配置分页。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 首页按所选榜单独立展示推荐分区。",
   },
 
   create(host) {
@@ -61,7 +54,7 @@ globalThis.__mfPlugin = {
       "23784": "网络红歌榜",
       "24971": "DJ热歌榜",
     };
-    var KUGOU_API_BASE = "http://m.kugou.com";
+    var KUGOU_V3_API = "http://mobilecdn.kugou.com/api/v3/rank/song";
     var PLAYLIST_PREFIX = "pl-kugou-chart-";
 
     function norm(s) {
@@ -110,18 +103,31 @@ globalThis.__mfPlugin = {
       try { var res = await host.sources.complete({ artist: artist, title: title }); return res && res.songId ? res.songId : null; } catch (e) { return null; }
     }
 
-    /** 抓取单个榜单所有页 */
-    async function fetchAllPages(rankid, maxPages) {
+    /** 抓取单个榜单所有歌曲 */
+    async function fetchAllSongs(rankid) {
+      // 使用 V3 API，一次请求拉取全部（pagesize=500）
+      var url = KUGOU_V3_API + "?rankid=" + rankid + "&page=1&pagesize=500&json=true";
+      var data = await fetchJson(url);
+      if (!data || !data.data || !Array.isArray(data.data.info)) {
+        host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " V3 API 返回异常，尝试旧版 API");
+        return await fetchAllPagesFallback(rankid);
+      }
+      var songs = data.data.info;
+      host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " V3 API 获取 " + songs.length + " 首(共" + (data.data.total || "?") + "首)");
+      return songs;
+    }
+
+    /** 旧版 API 分页回退 */
+    async function fetchAllPagesFallback(rankid) {
       var allSongs = [];
-      for (var page = 1; page <= maxPages; page++) {
-        var url = KUGOU_API_BASE + "/rank/info/?rankid=" + rankid + "&page=" + page + "&json=true";
+      for (var page = 1; page <= 20; page++) {
+        var url = "http://m.kugou.com/rank/info/?rankid=" + rankid + "&page=" + page + "&json=true";
         var data = await fetchJson(url);
         if (!data || !data.songs || !Array.isArray(data.songs.list)) break;
         var pageSongs = data.songs.list;
-        // API 固定每页 30 首，空页说明已到末尾
         if (pageSongs.length === 0) break;
         allSongs = allSongs.concat(pageSongs);
-        host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " 第" + page + "页获取 " + pageSongs.length + " 首, 累计 " + allSongs.length + " 首(共" + (data.songs.total || "?") + "首)");
+        host.log("酷狗" + (CHART_NAME[rankid] || rankid) + " 旧版API第" + page + "页获取 " + pageSongs.length + " 首, 累计 " + allSongs.length + " 首(共" + (data.songs.total || "?") + "首)");
       }
       return allSongs;
     }
@@ -152,23 +158,17 @@ globalThis.__mfPlugin = {
       return ["8888"];
     }
 
-    function getMaxPages(config) {
-      var v = Number(config && config.maxPages);
-      return Number.isFinite(v) && v > 0 ? v : 17;
-    }
-
     return {
       /** 首页推荐：按所选榜单独立展示 */
       async recommend(config) {
         var rankIds = parseRankIds(config);
-        var maxPages = getMaxPages(config);
         var cache = new Map();
         var playlists = [];
         for (var i = 0; i < rankIds.length; i++) {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);
           try {
-            var allSongs = await fetchAllPages(rid, maxPages);
+            var allSongs = await fetchAllSongs(rid);
             var entries = [];
             for (var j = 0; j < allSongs.length; j++) {
               var result = await processItem(allSongs[j], cache);
@@ -191,7 +191,6 @@ globalThis.__mfPlugin = {
       runDailyJob: async function () {
         var config = host.config || {};
         var rankIds = parseRankIds(config);
-        var maxPages = getMaxPages(config);
         var cache = new Map();
         var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
         var successCount = 0;
@@ -208,7 +207,7 @@ globalThis.__mfPlugin = {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);
           try {
-            var allSongs = await fetchAllPages(rid, maxPages);
+            var allSongs = await fetchAllSongs(rid);
             var entries = [];
             var matched = 0, online = 0, external = 0;
             for (var j = 0; j < allSongs.length; j++) {

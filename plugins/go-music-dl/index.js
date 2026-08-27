@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.5.0",
+    version: "1.6.0",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -97,9 +97,7 @@ globalThis.__mfPlugin = { manifest: {
         { value: "apple", label: "Apple Music" },
       ] },
       { key: "homeCount", label: "平台首页歌单数", group: "recommend", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
-      { key: "sortOrder", label: "首页显示顺序", group: "recommend", type: "number", default: 10, help: "go-music-dl 本身在首页的显示顺序,数值越小越靠前。其他推荐歌单插件(QQ/酷狗/网易云榜单)各自有自己的排序值(1~100,默认 10)" },
-      { key: "includeRecommendPlaylists", label: "包含其他推荐歌单", group: "recommend", type: "switch", default: true, help: "开启后,首页「平台精选」会包含其他推荐歌单插件(如QQ音乐榜单/酷狗榜单/网易云榜单)的推荐内容" },
-      { key: "sortBySortOrder", label: "按排序顺序排列", group: "recommend", type: "switch", default: true, help: "开启后,所有平台分区按各插件配置的「首页显示顺序」排列;关闭则按插件注册顺序排列" },
+      { key: "sortOrder", label: "首页显示顺序", group: "recommend", type: "number", default: 10, help: "go-music-dl 本身在首页的显示顺序,数值越小越靠前。其他推荐歌单插件(QQ/酷狗/网易云榜单)各自有自己的排序值(1~100,默认 10)。排序由后端统一聚合处理,不再依赖 go-music-dl 内部合并。" },
       { key: "keywords", label: "搜索关键词", group: "keyword", type: "text", default: "抖音\n热门\n民谣\n经典", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
       { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", group: "keyword", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。默认空(搜索全部平台)。", options: [
         { value: "netease", label: "网易云" },
@@ -930,47 +928,9 @@ globalThis.__mfPlugin = { manifest: {
           ch.sortOrder = Number(ch.sortOrder) || Number(config.sortOrder) || 10;
         }
 
-        // --------------------------
-        // 合并其他推荐歌单插件（推荐歌单插件返回自己的 channels）
-        // --------------------------
-        const includeRecommendPlaylists = config.includeRecommendPlaylists !== false;
-        if (includeRecommendPlaylists && host.plugins && host.plugins.listEnabledByCapability) {
-          try {
-            const rpPlugins = host.plugins.listEnabledByCapability("recommendPlaylist");
-            if (Array.isArray(rpPlugins) && rpPlugins.length > 0) {
-              host.log("首页推荐:合并 " + rpPlugins.length + " 个推荐歌单插件");
-              for (var pi = 0; pi < rpPlugins.length; pi++) {
-                var rp = rpPlugins[pi];
-                if (!rp || !rp.impl || typeof rp.impl.recommend !== "function") continue;
-                if (rp.manifest.id === manifest.id) continue; // 跳过自己
-                try {
-                  var rpConfig = host.getPluginConfig(rp.manifest.id) || {};
-                  var rpResult = await rp.impl.recommend(rpConfig);
-                  if (rpResult && Array.isArray(rpResult.channels) && rpResult.channels.length > 0) {
-                    channels = channels.concat(rpResult.channels);
-                    host.log("首页推荐:合并 " + rp.manifest.id + " 贡献 " + rpResult.channels.length + " 个分区");
-                  }
-                } catch (e) {
-                  host.log("推荐歌单插件 " + rp.manifest.id + " 调用失败: " + (e.message || e));
-                }
-              }
-            }
-          } catch (e) {
-            host.log("合并推荐歌单插件失败: " + (e.message || e));
-          }
-        }
-
-        // --------------------------
-        // 按 sortOrder 排序（数值越小越靠前）
-        // --------------------------
-        const sortBySortOrder = config.sortBySortOrder !== false;
-        if (sortBySortOrder && channels.length > 1) {
-          channels = channels.slice().sort(function (a, b) {
-            var sa = typeof a.sortOrder === "number" ? a.sortOrder : (typeof a.sortOrder === "string" ? Number(a.sortOrder) : 99);
-            var sb = typeof b.sortOrder === "number" ? b.sortOrder : (typeof b.sortOrder === "string" ? Number(b.sortOrder) : 99);
-            return sa - sb;
-          });
-        }
+        // 注意:合并其他推荐歌单插件 + 按 sortOrder 排序的逻辑已移至后端
+        // /v1/recommend 统一处理,不再由 go-music-dl 内部合并。这样每个插件
+        // 都是独立平等的,不依赖某个主插件聚合。
 
         return { channels };
       },

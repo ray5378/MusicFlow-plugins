@@ -19,6 +19,9 @@ on:
     branches: ["master"]
     paths:
       - "plugins/go-music-dl/**"
+      - "plugins/qq-chart/**"
+      - "plugins/kugou-chart/**"
+      - "plugins/netease-chart/**"
   workflow_dispatch:
     inputs:
       pluginId:

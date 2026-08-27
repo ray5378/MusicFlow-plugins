@@ -14,19 +14,19 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.5.0",
+    version: "1.6.0",
     type: "recommender",
     description:
-      "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
-    capabilities: ["recommendPlaylist"],
+      "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
+    capabilities: ["localPlatformRecommend"],
     defaultEnabled: true,
     minAppVersion: "1.7.39",
-    longRunning: { runDailyJob: 120000, recommend: 60000 },
+    longRunning: { runDailyJob: 120000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.5.0/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.6.0/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -48,7 +48,7 @@ globalThis.__mfPlugin = {
         group: "recommend",
         type: "number",
         default: 6,
-        help: "首页「平台精选」展示多少个榜单(1~50,默认 6)",
+        help: "首页「本地歌单」展示多少个已入库榜单(1~50,默认 6)",
       },
       {
         key: "sortOrder",
@@ -56,11 +56,11 @@ globalThis.__mfPlugin = {
         group: "recommend",
         type: "number",
         default: 32,
-        help: "数值越小越靠前。多个推荐插件(go-music-dl/QQ音乐榜单/酷狗榜单/网易云榜单)按此值在首页排列(1~100,默认 32)",
+        help: "数值越小越靠前。QQ音乐榜单/酷狗榜单/网易云榜单按此值在首页「本地歌单」分区排列(1~100,默认 32)",
       },
     ],
     documentation:
-      "### 功能介绍\n自动抓取网易云音乐排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「平台精选」展示的榜单数量；\n- 首页按所选榜单独立展示推荐分区。",
+      "### 功能介绍\n自动抓取网易云音乐排行榜并同步到本地音乐库，支持多选榜单，在首页「本地歌单」分区展示（直连本地库播放，无需导入）。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「本地歌单」展示的榜单数量；\n- 首页按所选榜单独立展示分区。",
   },
 
   create(host) {
@@ -156,29 +156,32 @@ globalThis.__mfPlugin = {
       return ["3778678"];
     }
 
+    // 首页「本地歌单」分区(localPlatformRecommend)：直接读取本插件每日同步入库的榜单
+    // 歌单。封面/数量均取自本地库(DB)字段，真实且无网络依赖；点击即本地播放，三端统一
+    // 走本地库直连，绝不走 go-music-dl 导入路线。未同步入库的榜单不展示。
     return {
-      /** 首页推荐：按所选榜单独立展示（轻量元数据）
-       *  首页卡片只需 名称+数量+跳转入口，无需抓取/处理任何歌曲。歌曲由
-       *  runDailyJob(每日一次) 同步入库，或点击卡片时按需拉取。这里不访问
-       *  上游、不匹配/补全歌曲，因此首页展示与歌单歌曲数完全解耦——
-       *  冷启动也秒开，绝不再导致整个「平台精选」因某个频道慢而消失。 */
-      async recommend(config) {
+      /** 首页本地歌单分区(localPlatformRecommend)：读取已入库榜单歌单 */
+      async recommendLocal(config) {
         var chartIds = parseChartIds(config);
         var homeCount = Number(config && config.homeCount) || 6;
         var sortOrder = Number(config && config.sortOrder) || 32;
         var playlists = [];
         for (var i = 0; i < chartIds.length && playlists.length < homeCount; i++) {
           var cid = chartIds[i];
-          var cname = CHART_NAME[cid] || ("榜单 " + cid);
-          playlists.push({
-            id: PLAYLIST_PREFIX + cid,
-            name: "网易云·" + cname,
-            cover: "",
-            creator: "",
-            // 首页无实际歌曲，卡片数量/已入库状态由后端用「每日同步」的本地歌单覆盖
-          });
+          try {
+            var p = await host.playlists.get(PLAYLIST_PREFIX + cid);
+            if (!p) continue; // 未同步入库 → 不在本地分区展示
+            playlists.push({
+              id: p.id,
+              name: p.name || ("网易云·" + (CHART_NAME[cid] || cid)),
+              coverArt: p.cover_art ? ("pl-" + p.id) : "",
+              songCount: p.song_count || 0,
+            });
+          } catch (e) {
+            // 单榜读取失败跳过，不影响其它榜
+          }
         }
-        host.log("网易云榜单首页展示: " + playlists.length + " 个榜单(仅元数据,未拉取歌曲)");
+        host.log("网易云榜单本地分区展示: " + playlists.length + " 个已入库榜单");
         return { channels: [{ source: "netease", name: "网易云榜单", count: playlists.length, playlists: playlists, sortOrder: sortOrder }] };
       },
 

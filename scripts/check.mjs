@@ -27,7 +27,7 @@ const VALID_TYPES = ["source", "importer", "recommender", "sync", "lyrics", "cov
 const VALID_CAPS = [
   "search", "playlistSearch", "songSearch", "artistSearch", "albumSearch", "recommend", "playlistSongs", "stream", "lyrics", "webRotation",
   "playlistImport", "playlistFile", "dailyPlaylist", "localPlaylist",
-  "recommendPlaylist",
+  "recommendPlaylist", "localPlatformRecommend",
   "playlistSync", "autoMatch",
   "playlistCleanup",
   "lyricProvider", "coverProvider", "renderer", "scrobbler",
@@ -63,6 +63,7 @@ const CAP_METHODS = {
   dailyPlaylist: ["runDailyJob"],
   localPlaylist: ["runDailyJob"],
   recommendPlaylist: ["runDailyJob"],
+  localPlatformRecommend: ["runDailyJob", "recommendLocal"],
   playlistCleanup: ["runDailyJob"],
   playlistSync: ["runSyncJob"],
   // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
@@ -224,6 +225,9 @@ async function checkOne(id) {
     // search 同时对应 search / autoMatch 两种能力，声明任一即可，避免误报
     if (cap === "autoMatch" && declared.has("search")) continue;
     if (cap === "search" && declared.has("autoMatch")) continue;
+    // runDailyJob 由多个能力共享：声明 localPlatformRecommend(含 recommendLocal)也已含
+    // runDailyJob,避免对 dailyPlaylist/localPlaylist/recommendPlaylist/playlistCleanup 误报
+    if (declared.has("localPlatformRecommend") && fns && fns.join(",") === "runDailyJob") continue;
     if (fns && fns.length && declaredMethodKeys.has([...fns].sort().join(","))) continue;
     if (fns && fns.every((fn) => typeof impl[fn] === "function")) {
       warn(id, `impl 提供了 ${fns.join("/")}() 但未声明能力 ${cap},核心不会调用它`);

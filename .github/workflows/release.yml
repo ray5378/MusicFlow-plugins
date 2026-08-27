@@ -99,7 +99,7 @@ jobs:
               git config user.name "github-actions"
               git config user.email "github-actions@github.com"
               git tag "$TAG" "${{ github.sha }}"
-              git push origin "$TAG"
+              git push origin "$TAG" >/dev/null 2>&1
             fi
 
             # 生成发布说明
@@ -111,11 +111,11 @@ jobs:
             )"
             NOTES+="\n\n---\n> 自动发版 by GitHub Actions (CI 校验通过后触发)"
 
-            # 创建 Release
+            # 创建 Release (输出重定向避免 GitHub Actions runner SIGPIPE 141)
             gh release create "$TAG" \
               --title "$ID v$VERSION" \
               --notes "$NOTES" \
-              "$ARCHIVE"
+              "$ARCHIVE" >/dev/null 2>&1
 
             echo "$ID 发版完成: $TAG"
           done

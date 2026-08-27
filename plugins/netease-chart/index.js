@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.4.0",
+    version: "1.5.0",
     type: "recommender",
     description:
       "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.2.0/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.5.0/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -157,30 +157,28 @@ globalThis.__mfPlugin = {
     }
 
     return {
-      /** 首页推荐：按所选榜单独立展示 */
+      /** 首页推荐：按所选榜单独立展示（轻量元数据）
+       *  首页卡片只需 名称+数量+跳转入口，无需抓取/处理任何歌曲。歌曲由
+       *  runDailyJob(每日一次) 同步入库，或点击卡片时按需拉取。这里不访问
+       *  上游、不匹配/补全歌曲，因此首页展示与歌单歌曲数完全解耦——
+       *  冷启动也秒开，绝不再导致整个「平台精选」因某个频道慢而消失。 */
       async recommend(config) {
         var chartIds = parseChartIds(config);
         var homeCount = Number(config && config.homeCount) || 6;
         var sortOrder = Number(config && config.sortOrder) || 32;
-        var cache = new Map();
         var playlists = [];
         for (var i = 0; i < chartIds.length && playlists.length < homeCount; i++) {
           var cid = chartIds[i];
           var cname = CHART_NAME[cid] || ("榜单 " + cid);
-          try {
-            var result = await fetchAndProcess(cid, cache);
-            host.log("网易云 " + result.chartName + " 推荐获取 " + result.entries.length + " 首");
-            playlists.push({
-              id: PLAYLIST_PREFIX + cid,
-              name: "网易云·" + result.chartName,
-              cover: "",
-              songs: result.entries,
-            });
-          } catch (e) {
-            host.log("网易云" + cname + "推荐获取失败: " + (e.message || e));
-          }
+          playlists.push({
+            id: PLAYLIST_PREFIX + cid,
+            name: "网易云·" + cname,
+            cover: "",
+            creator: "",
+            // 首页无实际歌曲，卡片数量/已入库状态由后端用「每日同步」的本地歌单覆盖
+          });
         }
-        host.log("网易云榜单推荐完成: 共 " + playlists.length + " 个榜单");
+        host.log("网易云榜单首页展示: " + playlists.length + " 个榜单(仅元数据,未拉取歌曲)");
         return { channels: [{ source: "netease", name: "网易云榜单", count: playlists.length, playlists: playlists, sortOrder: sortOrder }] };
       },
 

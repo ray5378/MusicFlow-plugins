@@ -16,7 +16,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.2.42",
+    version: "1.3.0",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -55,7 +55,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.2.41/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.3.0/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -95,6 +95,8 @@ globalThis.__mfPlugin = { manifest: {
         { value: "apple", label: "Apple Music" },
       ] },
       { key: "homeCount", label: "平台首页歌单数", group: "recommend", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
+      { key: "includeRecommendPlaylists", label: "包含其他推荐歌单", group: "recommend", type: "switch", default: true, help: "开启后,首页「平台精选」会包含其他推荐歌单插件(如QQ音乐榜单/酷狗榜单/网易云榜单)的推荐内容" },
+      { key: "sortBySortOrder", label: "按排序顺序排列", group: "recommend", type: "switch", default: true, help: "开启后,所有平台分区按各插件配置的「首页显示顺序」排列;关闭则按插件注册顺序排列" },
       { key: "keywords", label: "搜索关键词", group: "keyword", type: "text", default: "抖音\n热门\n民谣\n经典", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
       { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", group: "keyword", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。默认空(搜索全部平台)。", options: [
         { value: "netease", label: "网易云" },
@@ -923,6 +925,49 @@ globalThis.__mfPlugin = { manifest: {
           ch.playlists = ch.playlists.slice(0, homeCount);
           ch.count = ch.playlists.length;
         }
+
+        // --------------------------
+        // 合并其他推荐歌单插件（推荐歌单插件返回自己的 channels）
+        // --------------------------
+        const includeRecommendPlaylists = config.includeRecommendPlaylists !== false;
+        if (includeRecommendPlaylists && host.plugins && host.plugins.listEnabledByCapability) {
+          try {
+            const rpPlugins = host.plugins.listEnabledByCapability("recommendPlaylist");
+            if (Array.isArray(rpPlugins) && rpPlugins.length > 0) {
+              host.log("首页推荐:合并 " + rpPlugins.length + " 个推荐歌单插件");
+              for (var pi = 0; pi < rpPlugins.length; pi++) {
+                var rp = rpPlugins[pi];
+                if (!rp || !rp.impl || typeof rp.impl.recommend !== "function") continue;
+                if (rp.manifest.id === manifest.id) continue; // 跳过自己
+                try {
+                  var rpConfig = host.getPluginConfig(rp.manifest.id) || {};
+                  var rpResult = await rp.impl.recommend(rpConfig);
+                  if (rpResult && Array.isArray(rpResult.channels) && rpResult.channels.length > 0) {
+                    channels = channels.concat(rpResult.channels);
+                    host.log("首页推荐:合并 " + rp.manifest.id + " 贡献 " + rpResult.channels.length + " 个分区");
+                  }
+                } catch (e) {
+                  host.log("推荐歌单插件 " + rp.manifest.id + " 调用失败: " + (e.message || e));
+                }
+              }
+            }
+          } catch (e) {
+            host.log("合并推荐歌单插件失败: " + (e.message || e));
+          }
+        }
+
+        // --------------------------
+        // 按 sortOrder 排序（数值越小越靠前）
+        // --------------------------
+        const sortBySortOrder = config.sortBySortOrder !== false;
+        if (sortBySortOrder && channels.length > 1) {
+          channels = channels.slice().sort(function (a, b) {
+            var sa = typeof a.sortOrder === "number" ? a.sortOrder : (typeof a.sortOrder === "string" ? Number(a.sortOrder) : 99);
+            var sb = typeof b.sortOrder === "number" ? b.sortOrder : (typeof b.sortOrder === "string" ? Number(b.sortOrder) : 99);
+            return sa - sb;
+          });
+        }
+
         return { channels };
       },
 

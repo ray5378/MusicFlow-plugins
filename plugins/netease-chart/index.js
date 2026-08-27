@@ -18,7 +18,7 @@ globalThis.__mfPlugin = {
     type: "recommender",
     description:
       "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
-    capabilities: ["recommend", "recommendPlaylist"],
+    capabilities: ["recommendPlaylist"],
     defaultEnabled: false,
     minAppVersion: "1.7.39",
     longRunning: { runDailyJob: 120000, recommend: 60000 },

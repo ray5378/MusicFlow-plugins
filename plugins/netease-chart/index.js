@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.6.1",
+    version: "1.6.2",
     type: "recommender",
     description:
       "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.6.1/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.6.2/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -182,7 +182,7 @@ globalThis.__mfPlugin = {
           }
         }
         host.log("网易云榜单本地分区展示: " + playlists.length + " 个已入库榜单");
-        return { channels: [{ source: "netease", name: "网易云榜单", count: playlists.length, playlists: playlists, sortOrder: sortOrder }] };
+        return { channels: [{ source: "netease", name: "网易云榜单", count: playlists.length, sortOrder: sortOrder, subtag: "每日更新", tagline: "从网易云榜单获取最新的榜单", playlists: playlists }] };
       },
 
       /** 每日定时任务：抓取所有所选榜单 → 写入独立歌单 */

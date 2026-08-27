@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.1.1",
+    version: "1.1.2",
     type: "recommender",
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。在首页以独立推荐分区展示。",
@@ -26,7 +26,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.1.1/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.1.2/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -52,9 +52,17 @@ globalThis.__mfPlugin = {
         default: ["26"],
         help: "选择要同步的QQ音乐巅峰榜榜单，可以多选",
       },
+      {
+        key: "homeCount",
+        label: "首页展示歌单数",
+        group: "recommend",
+        type: "number",
+        default: 6,
+        help: "首页「平台精选」展示多少个榜单(1~50,默认 6)",
+      },
     ],
     documentation:
-      "### 功能介绍\n自动抓取QQ音乐巅峰榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 首页按所选榜单独立展示推荐分区。",
+      "### 功能介绍\n自动抓取QQ音乐巅峰榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「平台精选」展示的榜单数量；\n- 首页按所选榜单独立展示推荐分区。",
   },
 
   create(host) {
@@ -159,13 +167,15 @@ globalThis.__mfPlugin = {
       /** 首页推荐：按所选榜单独立展示 */
       async recommend(config) {
         var chartIds = parseChartIds(config);
+        var homeCount = Number(config && config.homeCount) || 6;
         var cache = new Map();
         var playlists = [];
-        for (var i = 0; i < chartIds.length; i++) {
+        for (var i = 0; i < chartIds.length && playlists.length < homeCount; i++) {
           var cid = chartIds[i];
           var cname = CHART_NAME[cid] || ("榜单 " + cid);
           try {
             var result = await fetchAndProcess(cid, cache);
+            host.log("QQ音乐 " + result.chartName + " 推荐获取 " + result.entries.length + " 首");
             playlists.push({
               id: PLAYLIST_PREFIX + cid,
               name: "QQ音乐·" + result.chartName,
@@ -176,6 +186,7 @@ globalThis.__mfPlugin = {
             host.log("QQ音乐" + cname + "推荐获取失败: " + (e.message || e));
           }
         }
+        host.log("QQ音乐榜单推荐完成: 共 " + playlists.length + " 个榜单");
         return { channels: [{ source: "qq", name: "QQ音乐榜单", count: playlists.length, playlists: playlists }] };
       },
 
@@ -197,8 +208,10 @@ globalThis.__mfPlugin = {
 
         for (var i = 0; i < chartIds.length; i++) {
           var cid = chartIds[i];
+          var cname = CHART_NAME[cid] || ("榜单 " + cid);
           try {
             var result = await fetchAndProcess(cid, cache);
+            host.log("QQ音乐 " + result.chartName + " 同步获取 " + result.entries.length + " 首(本地匹配 " + result.matched + " 首, 在线补全 " + result.online + " 首, 待补全 " + result.external + " 首)");
             await host.playlists.upsert(PLAYLIST_PREFIX + cid, {
               name: "QQ音乐·" + result.chartName,
               description: "QQ音乐巅峰榜 - " + result.chartName + "，每日自动同步",

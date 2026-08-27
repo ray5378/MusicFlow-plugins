@@ -42,9 +42,17 @@ globalThis.__mfPlugin = {
         default: ["8888"],
         help: "选择要同步到本地音乐库的酷狗榜单，可以多选",
       },
+      {
+        key: "homeCount",
+        label: "首页展示歌单数",
+        group: "recommend",
+        type: "number",
+        default: 6,
+        help: "首页「平台精选」展示多少个榜单(1~50,默认 6)",
+      },
     ],
     documentation:
-      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n使用 V3 API 一次拉取全部歌曲，无需配置分页。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 首页按所选榜单独立展示推荐分区。",
+      "### 功能介绍\n自动抓取酷狗排行榜并同步到本地音乐库，支持多选榜单，在首页推荐分区展示。\n\n使用 V3 API 一次拉取全部歌曲，无需配置分页。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「平台精选」展示的榜单数量；\n- 首页按所选榜单独立展示推荐分区。",
   },
 
   create(host) {
@@ -162,9 +170,10 @@ globalThis.__mfPlugin = {
       /** 首页推荐：按所选榜单独立展示 */
       async recommend(config) {
         var rankIds = parseRankIds(config);
+        var homeCount = Number(config && config.homeCount) || 6;
         var cache = new Map();
         var playlists = [];
-        for (var i = 0; i < rankIds.length; i++) {
+        for (var i = 0; i < rankIds.length && playlists.length < homeCount; i++) {
           var rid = rankIds[i];
           var rname = CHART_NAME[rid] || ("榜单 " + rid);
           try {
@@ -174,6 +183,7 @@ globalThis.__mfPlugin = {
               var result = await processItem(allSongs[j], cache);
               if (result) entries.push(result.entry);
             }
+            host.log("酷狗 " + rname + " 推荐获取 " + entries.length + " 首");
             playlists.push({
               id: PLAYLIST_PREFIX + rid,
               name: "酷狗·" + rname,
@@ -184,6 +194,7 @@ globalThis.__mfPlugin = {
             host.log("酷狗" + rname + "推荐获取失败: " + (e.message || e));
           }
         }
+        host.log("酷狗榜单推荐完成: 共 " + playlists.length + " 个榜单");
         return { channels: [{ source: "kugou", name: "酷狗榜单", count: playlists.length, playlists: playlists }] };
       },
 

@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.2",
+    version: "1.6.3",
     type: "recommender",
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
@@ -200,7 +200,7 @@ globalThis.__mfPlugin = {
           }
         }
         host.log("QQ音乐榜单本地分区展示: " + playlists.length + " 个已入库榜单");
-        return { channels: [{ source: "qq", name: "QQ音乐榜单", count: playlists.length, sortOrder: sortOrder, subtag: "每日更新", tagline: "从QQ音乐榜单获取最新的榜单", playlists: playlists }] };
+        return { channels: [{ source: "qq", name: "QQ音乐榜单", count: playlists.length, sortOrder: sortOrder, subtag: "每日更新", playlists: playlists }] };
       },
 
       /** 每日定时任务：抓取所有所选榜单 → 写入独立歌单 */

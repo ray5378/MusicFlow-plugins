@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.3",
+    version: "1.6.4",
     type: "recommender",
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
@@ -110,24 +110,46 @@ globalThis.__mfPlugin = {
       try { return JSON.parse(r.body); } catch (e) { throw new Error("JSON 解析失败: " + (e.message || e)); }
     }
 
-    async function matchLocal(title, artist, cache) {
+    async function matchLocal(title, artist, album, durationMs, cache) {
       var key = String(title || "") + "|" + String(artist || "");
       if (cache.has(key)) return cache.get(key);
       var tNorm = norm(title);
       if (!tNorm) { cache.set(key, null); return null; }
       var aNorm = norm(artist);
       var hits = [];
-      try { hits = (await host.songs.search([title, artist].filter(Boolean).join(" "), { limit: 10 })) || []; } catch (e) { hits = []; }
-      if (!hits.length) { try { hits = (await host.songs.search(title, { limit: 10 })) || []; } catch (e) { hits = []; } }
+      // 首轮带歌手搜(宿主已支持分词 AND,能命中 title/artist 都含词的候选);
+      // 0 条才回退裸歌名,回退时拉大候选量避免同名多版本被截断漏掉正确歌手。
+      try { hits = (await host.songs.search([title, artist].filter(Boolean).join(" "), { limit: 50 })) || []; } catch (e) { hits = []; }
+      if (!hits.length) { try { hits = (await host.songs.search(title, { limit: 200 })) || []; } catch (e) { hits = []; } }
       if (!hits.length) { cache.set(key, null); return null; }
       var best = null, bestScore = -1;
       for (var i = 0; i < hits.length; i++) {
         var h = hits[i], hT = norm(h.title), hA = norm(h.artist), sc = 0;
-        if (hT === tNorm) sc += 100; else if (hT.indexOf(tNorm) >= 0 || tNorm.indexOf(hT) >= 0) sc += 60;
-        if (aNorm && hA && (hA.indexOf(aNorm) >= 0 || aNorm.indexOf(hA) >= 0)) sc += 40;
+        // 歌名硬:必须精确相等(不再收 60 包含分——《唯一》不得绑《唯一(Live)》/《唯一×0.8》)。
+        if (hT !== tNorm) continue;
+        // 歌手硬:期望歌手非空时必须互相包含(处理 "G.E.M.邓紫棋" vs "邓紫棋");
+        // 歌手不符 = 同名异曲,直接排除,绝不退而求其次绑同名歌。
+        if (aNorm) {
+          if (!(hA && (hA.indexOf(aNorm) >= 0 || aNorm.indexOf(hA) >= 0))) continue;
+          sc = 140;
+        } else {
+          sc = 100;
+        }
+        // 时长软:双方均可比且差 ≤5s 加分(多版本择优,不否决)。
+        // 本地库 duration 存秒(songs.duration 由 scanner 写入,music-metadata 单位秒),
+        // 榜单侧传毫秒 → 本地值 <1000 视为秒先转毫秒再比较。
+        if (durationMs > 0) {
+          var rawDur = Number(h.duration) || 0;
+          var hDurMs = rawDur > 0 && rawDur < 1000 ? rawDur * 1000 : rawDur;
+          if (hDurMs > 0 && Math.abs(hDurMs - durationMs) <= 5000) sc += 10;
+        }
+        // 专辑软:归一后一致加分(同上,仅用于同歌名同歌手多版本择优)。
+        if (album && h.album && norm(album) === norm(h.album)) sc += 5;
         if (sc > bestScore) { bestScore = sc; best = h; }
       }
-      var id = best && bestScore >= 60 ? best.id : null;
+      // 过线:期望歌手时须 140(歌名100+歌手40),无歌手信息时歌名精确即可。
+      var pass = best && ((aNorm && bestScore >= 140) || (!aNorm && bestScore >= 100));
+      var id = pass ? best.id : null;
       cache.set(key, id);
       return id;
     }
@@ -154,7 +176,7 @@ globalThis.__mfPlugin = {
         var duration = (parseInt(item.interval, 10) || 0) * 1000;
         var songmid = String(item.songmid || "").trim();
         var localId = null;
-        try { localId = await matchLocal(title, artist, cache); } catch (e) { localId = null; }
+        try { localId = await matchLocal(title, artist, album, duration, cache); } catch (e) { localId = null; }
         if (localId) { entries.push({ songId: localId }); matched++; continue; }
         var completedId = null;
         try { completedId = await completeOnline(title, artist); } catch (e) { completedId = null; }

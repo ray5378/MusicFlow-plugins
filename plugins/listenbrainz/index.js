@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.7",
+    version: "1.5.8",
     type: "scrobbler",
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;经 manifest.longRunning 声明长耗时预算,配合后端异步任务通道一次任务即可完成生成)。运行于 QuickJS 沙箱。",
@@ -448,31 +448,44 @@ globalThis.__mfPlugin = {
       return out;
     }
 
-    /** 本地曲库模糊匹配:优先「标题+艺人」,再退化「仅标题」,挑标题最相似者。 */
-    async function matchLocal(title, artist) {
+    /** 本地曲库匹配(歌名+歌手硬,时长/专辑软性择优),命中返回 songId。 */
+    async function matchLocal(title, artist, album, durationMs) {
       const norm = (s) => String(s || "").toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, "");
       const tNorm = norm(title);
       if (!tNorm) return null;
+      const aNorm = norm(artist);
       const tryQuery = async (q) => {
-        try { return (await host.songs.search(q, { limit: 10 })) || []; } catch { return []; }
+        try { return (await host.songs.search(q, { limit: 50 })) || []; } catch { return []; }
       };
+      // 首轮带歌手搜(宿主已支持分词 AND);0 条才回退裸歌名并拉大候选量,
+      // 避免同名多版本被截断漏掉正确歌手。
       let hits = await tryQuery([title, artist].filter(Boolean).join(" "));
       if (!hits.length) hits = await tryQuery(title);
       if (!hits.length) return null;
       let best = null, bestScore = -1;
       for (const h of hits) {
         const hTitle = norm(h.title);
-        let score = 0;
-        if (hTitle === tNorm) score += 100;
-        else if (hTitle.includes(tNorm) || tNorm.includes(hTitle)) score += 60;
-        if (artist) {
-          const aNorm = norm(artist);
-          const hArtist = norm(h.artist);
-          if (aNorm && (hArtist.includes(aNorm) || aNorm.includes(hArtist))) score += 40;
+        const hArtist = norm(h.artist);
+        // 歌名硬:必须精确相等(不再收 60 包含分——同名单曲不得绑到 Live/Remix 变体)。
+        if (hTitle !== tNorm) continue;
+        // 歌手硬:期望歌手非空时必须互相包含;歌手不符 = 同名异曲,直接排除。
+        if (aNorm) {
+          if (!(hArtist && (hArtist.includes(aNorm) || aNorm.includes(hArtist)))) continue;
         }
+        let score = aNorm ? 140 : 100;
+        // 时长软:双方均可比且差 ≤5s 加分(元数据无时长时自动跳过)。
+        // 本地库 duration 存秒(songs.duration 由 scanner 写入,music-metadata 单位秒),
+        // 调用方传毫秒 → 本地值 <1000 视为秒先转毫秒再比较。
+        if (durationMs > 0) {
+          const rawDur = Number(h.duration) || 0;
+          const hDurMs = rawDur > 0 && rawDur < 1000 ? rawDur * 1000 : rawDur;
+          if (hDurMs > 0 && Math.abs(hDurMs - durationMs) <= 5000) score += 10;
+        }
+        // 专辑软:归一后一致加分(仅用于同歌名同歌手多版本择优)。
+        if (album && h.album && norm(album) === norm(h.album)) score += 5;
         if (score > bestScore) { bestScore = score; best = h; }
       }
-      return best && bestScore >= 60 ? best.id : null;
+      return best && ((aNorm && bestScore >= 140) || (!aNorm && bestScore >= 100)) ? best.id : null;
     }
 
     /**
@@ -525,7 +538,7 @@ globalThis.__mfPlugin = {
       // auto-match(主进程)继续补全为可播条目 → 零质量损失。
       for (const m of meta) {
         // 1) 本地曲库匹配
-        const localId = await matchLocal(m.title, m.artist);
+        const localId = await matchLocal(m.title, m.artist, m.album, m.duration);
         if (localId) {
           entries.push({ songId: localId });
           coverCandidates.push(localId);

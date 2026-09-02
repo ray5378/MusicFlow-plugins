@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.0",
+    version: "1.6.1",
     type: "source",
     description:
       "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
@@ -622,35 +622,48 @@ globalThis.__mfPlugin = { manifest: {
       // (回退 matchLocal / 外部占位,由后台 auto-match 严格匹配)。
       return null;
     }
-    /** 本地曲库模糊匹配(与 ListenBrainz 插件同款打分),命中返回 songId。
-     *  cache 为调用内 Map(title|artist → id|null),去重跨歌单重复曲目。 */
-    async function matchLocal(title, artist, cache) {
+    /** 本地曲库匹配(歌名+歌手硬,时长/专辑软性择优),命中返回 songId。
+     *  cache 为调用内 Map(title|artist → id|null),去重跨歌单重复曲目。
+     *  durationMs 传毫秒(可空);池(matchInPool)只覆盖前 5000 首,池外全部走本函数。 */
+    async function matchLocal(title, artist, album, durationMs, cache) {
       const key = String(title || "") + "|" + String(artist || "");
       if (cache.has(key)) return cache.get(key);
       const tNorm = norm(title);
       if (!tNorm) { cache.set(key, null); return null; }
+      const aNorm = norm(artist);
       const tryQuery = async (q) => {
-        try { return (await host.songs.search(q, { limit: 10 })) || []; } catch { return []; }
+        try { return (await host.songs.search(q, { limit: 50 })) || []; } catch { return []; }
       };
+      // 首轮带歌手搜(宿主已支持分词 AND,能命中 title/artist 都含词的候选);
+      // 0 条才回退裸歌名,回退时拉大候选量避免同名多版本被截断漏掉正确歌手。
       let hits = await tryQuery([title, artist].filter(Boolean).join(" "));
       if (!hits.length) hits = await tryQuery(title);
+      if (!hits.length) { cache.set(key, null); return null; }
       let best = null, bestScore = -1;
       for (const h of hits) {
         const hTitle = norm(h.title);
-        const aNorm = norm(artist);
         const hArtist = norm(h.artist);
-        // 收紧:同歌名很常见,歌手不符的候选直接排除(避免 bind 到同名异曲)。
-        const artistOk = !aNorm || !!(hArtist && (hArtist.includes(aNorm) || aNorm.includes(hArtist)));
-        if (!artistOk) continue;
-        let score = 0;
-        if (hTitle === tNorm) score += 100;
-        else if (hTitle.includes(tNorm) || tNorm.includes(hTitle)) score += 60;
-        if (artist) {
-          if (aNorm && (hArtist.includes(aNorm) || aNorm.includes(hArtist))) score += 40;
+        // 歌名硬:必须精确相等(不再收 60 包含分——同名单曲不得绑到 Live/Remix 变体)。
+        if (hTitle !== tNorm) continue;
+        // 歌手硬:期望歌手非空时必须互相包含;歌手不符 = 同名异曲,直接排除。
+        if (aNorm) {
+          if (!(hArtist && (hArtist.includes(aNorm) || aNorm.includes(hArtist)))) continue;
         }
+        let score = aNorm ? 140 : 100;
+        // 时长软:双方均可比且差 ≤5s 加分(多版本择优,不否决)。
+        // 本地库 duration 存秒(songs.duration 由 scanner 写入,music-metadata 单位秒),
+        // 调用方传毫秒 → 本地值 <1000 视为秒先转毫秒再比较。
+        if (durationMs > 0) {
+          const rawDur = Number(h.duration) || 0;
+          const hDurMs = rawDur > 0 && rawDur < 1000 ? rawDur * 1000 : rawDur;
+          if (hDurMs > 0 && Math.abs(hDurMs - durationMs) <= 5000) score += 10;
+        }
+        // 专辑软:归一后一致加分(同上,仅用于同歌名同歌手多版本择优)。
+        if (album && h.album && norm(album) === norm(h.album)) score += 5;
         if (score > bestScore) { bestScore = score; best = h; }
       }
-      const id = best && bestScore >= 60 ? best.id : null;
+      const pass = best && ((aNorm && bestScore >= 140) || (!aNorm && bestScore >= 100));
+      const id = pass ? best.id : null;
       cache.set(key, id);
       return id;
     }
@@ -703,7 +716,7 @@ globalThis.__mfPlugin = { manifest: {
               var firstMatchId = null;
               for (const s of f.songs) {
                 // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
-                const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
+                const localId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, s.album, (s.duration || 0) * 1000, matchCache));
                 if (localId) { entries.push({ songId: localId }); if (!firstMatchId) firstMatchId = localId; continue; }
                 // 2) 未命中:外部占位,由后台 auto-match 继续补全为可播(主进程不限时)
                 entries.push({
@@ -1100,7 +1113,7 @@ globalThis.__mfPlugin = { manifest: {
                 for (var si = 0; si < songs.length; si++) {
                   var s = songs[si];
                   // 1) 本地曲库优先匹配(池内 O(1),池外回退搜索)→ 立即可播+封面正常
-                  var matchedSongId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, matchCache));
+                  var matchedSongId = matchInPool(pool, s.name, s.artist) || (await matchLocal(s.name, s.artist, s.album, (s.duration || 0) * 1000, matchCache));
                   if (matchedSongId) {
                     songEntries.push({ songId: matchedSongId });
                     if (!firstMatchId) firstMatchId = matchedSongId;

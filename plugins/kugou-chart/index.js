@@ -14,8 +14,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "kugou-chart",
     name: "酷狗榜单",
-    version: "1.6.5",
+    version: "1.6.6",
     type: "recommender",
+    schedules: true,
     description:
       "抓取酷狗排行榜（TOP500、飙升榜、网络红歌榜、DJ热歌榜）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。TOP500使用V3 API一次拉满全部500首。",
     capabilities: ["localPlatformRecommend"],

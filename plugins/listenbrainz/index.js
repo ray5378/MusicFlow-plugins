@@ -28,8 +28,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.9",
+    version: "1.5.10",
     type: "scrobbler",
+    schedules: true,
     description:
       "把播放记录上报到 ListenBrainz(开源 Last.fm 替代品),并每天按协同过滤推荐生成「ListenBrainz」推荐歌单(换名优先用收听历史 + LB 元数据,MusicBrainz 仅兜底且带重试/预算,直连不可达时自动降级;经 manifest.longRunning 声明长耗时预算,配合后端异步任务通道一次任务即可完成生成)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],

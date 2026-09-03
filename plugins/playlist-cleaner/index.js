@@ -17,8 +17,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "playlist-cleaner",
     name: "歌单清理",
-    version: "1.0.0",
+    version: "1.0.1",
     type: "sync",
+    schedules: true,
     description:
       "一键清理低歌曲数歌单：可设置最少歌曲数阈值，自动删除歌曲数量低于该值的歌单。支持跳过平台同步歌单和推荐歌单，每日定时自动清理或手动触发。",
     capabilities: ["playlistCleanup"],

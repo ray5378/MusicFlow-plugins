@@ -1,7 +1,7 @@
 {
   "id": "playlist-cleaner",
   "name": "歌单清理",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "sync",
   "description": "一键清理低歌曲数歌单：可设置阈值，自动删除歌曲数量低于该值的歌单。支持每日定时自动清理和手动触发。",
   "capabilities": [
@@ -17,7 +17,7 @@
     "playlists:write"
   ],
   "author": "MusicFlow",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.0/playlist-cleaner.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.1/playlist-cleaner.tar.gz",
   "configSchema": [
     {
       "key": "minSongs",
@@ -41,5 +41,6 @@
       "default": true,
       "help": "开启后，会跳过每日推荐、本地推荐等系统推荐歌单，只清理其他歌单。"
     }
-  ]
+  ],
+  "schedules": true
 }

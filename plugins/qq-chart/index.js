@@ -17,8 +17,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.5",
+    version: "1.6.6",
     type: "recommender",
+    schedules: true,
     description:
       "抓取QQ音乐巅峰榜（热歌榜、抖音热歌榜、K歌金曲榜等14个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
     capabilities: ["localPlatformRecommend"],

@@ -14,8 +14,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.6.5",
+    version: "1.6.6",
     type: "recommender",
+    schedules: true,
     description:
       "抓取网易云音乐排行榜（热歌榜、飙升榜、新歌榜、原创榜）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
     capabilities: ["localPlatformRecommend"],

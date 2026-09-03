@@ -36,8 +36,9 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lastfm",
     name: "Last.fm 播放记录 + 推荐",
-    version: "1.0.4",
+    version: "1.0.5",
     type: "scrobbler",
+    schedules: true,
     description:
       "把播放记录上报到 Last.fm(经典 Last.fm 官方服务),并每天按收听数据组装「Last.fm 推荐」歌单(Top + Loved + 相似艺人)。运行于 QuickJS 沙箱。",
     capabilities: ["scrobbler", "recommendPlaylist"],

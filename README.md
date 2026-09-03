@@ -91,6 +91,27 @@ node scripts/check.mjs <id>       # 指定插件
    声明缺失不会报错、只会**静默失效**——脚本还会反向提醒「有方法但没声明能力」的情况。
 4. `downloadUrl` 的 Release tag 与 `version` 是否匹配（不匹配就会在市场安装时 404）。
 
+## 定时能力（schedules）
+
+涉及**歌单能力**的外置插件（`dailyPlaylist` / `localPlaylist` / `recommendPlaylist` / `localPlatformRecommend` / `comboPlaylist` / `playlistCleanup` / `recommend` / `webRotation` / `playlistSync` / `playlistImport` / `playlistFile` / `artistInfo`）会自动参与宿主的两条自动调度管线——**每日定时同步** 与 **容器启动补拉**。MusicFlow ≥ v1.13.40 起，宿主在注册唯一漏斗 `registerPlugin()` 里用 `withScheduleFields()` **统一注入**两个开关到插件配置页（归入「**定时同步**」分组）：
+
+- `scheduleEnabled` —— 参与每日定时同步（默认 `true`）；
+- `runOnBoot` —— 容器启动时拉取一次（默认 `false`）。
+
+涉及歌单能力的插件应在 `plugin.json` 显式声明，保持明确（也可依赖能力自动推断，两者等价）：
+
+```jsonc
+// plugins/<id>/plugin.json
+{
+  "id": "my-playlist",
+  "capabilities": ["playlistSync"],
+  "schedules": true   // 也可 { "scheduleEnabled": true, "runOnBoot": true } 或 false
+}
+```
+
+完整约定（取值方式、`SCHEDULED_CAPS` 清单、调度器门控）见主项目
+[docs/PLUGIN_DEV.md §3.2](https://github.com/ray5378/MusicFlow/blob/master/docs/PLUGIN_DEV.md)。
+
 ## 沙箱安全模型（MusicFlow ≥ 1.3.0）
 
 外置插件运行在 **QuickJS 虚拟机**（WASM）里，与主进程完全隔离：

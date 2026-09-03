@@ -36,7 +36,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lastfm",
     name: "Last.fm 播放记录 + 推荐",
-    version: "1.0.3",
+    version: "1.0.4",
     type: "scrobbler",
     description:
       "把播放记录上报到 Last.fm(经典 Last.fm 官方服务),并每天按收听数据组装「Last.fm 推荐」歌单(Top + Loved + 相似艺人)。运行于 QuickJS 沙箱。",
@@ -49,7 +49,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "crypto", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://gitee.com/ray5378/music-flow-plugins/raw/master/dist/lastfm.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lastfm-v1.0.4/lastfm.tar.gz",
     // 首页固定卡:核心按此聚合(manifest.homePlaylistId 指向本插件生成的固定歌单)。
     homePlaylistId: "pl-lf-recommend",
     configSchema: [

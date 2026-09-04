@@ -42,5 +42,26 @@
       "help": "开启后，会跳过每日推荐、本地推荐等系统推荐歌单，只清理其他歌单。"
     }
   ],
-  "schedules": true
+  "schedules": true,
+  "i18n": {
+    "en": {
+      "name": "Playlist Cleaner",
+      "description": "Clean up low-song-count playlists in one click: set a threshold and it automatically deletes playlists whose song count falls below it. Supports daily scheduled auto-cleanup and manual triggering.",
+      "groups": {},
+      "fields": {
+        "minSongs": {
+          "label": "Min song count",
+          "help": "Playlists whose song count is less than or equal to this value are cleaned up/deleted. For example, entering 5 deletes every playlist with ≤ 5 songs."
+        },
+        "skipSourcePlaylists": {
+          "label": "Skip platform-synced playlists",
+          "help": "When on, playlists synced by platform plugins (such as go-music-dl) are skipped and only locally generated playlists are cleaned."
+        },
+        "skipRecommendPlaylists": {
+          "label": "Skip recommended playlists",
+          "help": "When on, system recommendation playlists such as daily and local recommendations are skipped; only other playlists are cleaned."
+        }
+      }
+    }
+  }
 }

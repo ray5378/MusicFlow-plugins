@@ -420,5 +420,165 @@
     "kugou",
     "qq"
   ],
-  "schedules": true
+  "schedules": true,
+  "i18n": {
+    "en": {
+      "name": "go-music-dl All-in-One (Aggregator)",
+      "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search automatically limits the number of platforms (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox.",
+      "platformLabels": {
+        "netease": "Netease Cloud Music",
+        "qq": "QQ Music",
+        "kugou": "Kugou",
+        "kuwo": "Kuwo",
+        "migu": "Migu",
+        "qianqian": "Qianqian",
+        "soda": "Soda",
+        "fivesing": "5sing",
+        "jamendo": "Jamendo",
+        "joox": "JOOX",
+        "bilibili": "Bilibili",
+        "apple": "Apple Music"
+      },
+      "groups": {
+        "recommend": "Recommend",
+        "schedule": "Scheduling",
+        "backend": "Backend",
+        "keyword": "Keyword Search",
+        "frontend": "Frontend"
+      },
+      "fields": {
+        "baseUrl": {
+          "label": "Service address",
+          "help": "Enter the web service address of go-music-dl deployed on your LAN (shared by source / lyrics / cover)"
+        },
+        "username": {
+          "label": "Login username",
+          "help": "go-music-dl web backend login username. Leave empty to skip login and only sync public recommended playlists; when filled, the plugin logs in automatically every day and syncs each platform \"My Playlists\""
+        },
+        "password": {
+          "label": "Login password",
+          "help": "go-music-dl web backend login password (sent via system proxy/direct, stored only in plugin config, never exposed)"
+        },
+        "importMyPlaylists": {
+          "label": "Sync my private playlists",
+          "help": "When on, the plugin logs in automatically every day and incrementally syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent local playlists: never rotated, never cleaned; one batch per sync (within the sandbox 15s quota), progress persisted and resumed across days until everything is covered, and tracks within playlists are automatically refreshed into playable entries (missing local tracks backfilled in the background); when off, only public recommendations are synced."
+        },
+        "sources": {
+          "label": "Search platforms",
+          "help": "Platforms used for search/matching (defaults to the top 4 domestic platforms if unset). Every search is auto-reordered domestic-first and capped at 5 platforms to avoid a single timeout from searching all platforms (incl. overseas bilibili/JOOX/Apple).",
+          "options": {
+            "netease": "Netease Cloud Music",
+            "qq": "QQ Music",
+            "kugou": "Kugou",
+            "kuwo": "Kuwo",
+            "migu": "Migu",
+            "qianqian": "Qianqian",
+            "soda": "Soda",
+            "fivesing": "5sing",
+            "jamendo": "Jamendo",
+            "joox": "JOOX",
+            "bilibili": "Bilibili",
+            "apple": "Apple Music"
+          }
+        },
+        "webSongsMode": {
+          "label": "Web songs",
+          "options": {
+            "keep": "Never expire",
+            "rotate": "Periodic cleanup"
+          }
+        },
+        "webSongsRetentionDays": {
+          "label": "Retention days",
+          "help": "Online songs (and their covers) older than this many days that are no longer referenced by any playlist/favorite are auto-cleaned; those still in playlists or favorites are unaffected. 0 days = remove as soon as taken offline."
+        },
+        "recommendPlatforms": {
+          "label": "Home recommend platforms",
+          "help": "Choose which platform playlists appear in the \"Platform Picks\" section on the home page; unselected platforms will not appear. All selected by default.",
+          "options": {
+            "netease": "Netease Cloud Music",
+            "qq": "QQ Music",
+            "kugou": "Kugou",
+            "kuwo": "Kuwo",
+            "migu": "Migu",
+            "qianqian": "Qianqian",
+            "soda": "Soda",
+            "fivesing": "5sing",
+            "jamendo": "Jamendo",
+            "joox": "JOOX",
+            "bilibili": "Bilibili",
+            "apple": "Apple Music"
+          }
+        },
+        "homeCount": {
+          "label": "Platform home playlists",
+          "help": "Number of playlists shown per platform in the \"Platform Picks\" section on the home page (1~50, default 6). The same value is used for all platforms."
+        },
+        "includeRecommendPlaylists": {
+          "label": "Include other recommended playlists",
+          "help": "When on, the \"Platform Picks\" section on the home page also includes content from other recommend playlist plugins (e.g. QQ/Kugou/Netease charts)."
+        },
+        "sortOrder": {
+          "label": "Home display order",
+          "help": "go-music-dl display order on the home page; lower value sorts first. Other recommend playlist plugins (QQ/Kugou/Netease charts) have their own sort value (1~100, default 10)."
+        },
+        "sortBySortOrder": {
+          "label": "Sort by sort order",
+          "help": "When on, all platform sections are arranged by each plugin configured \"Home display order\"; when off, they are arranged by plugin registration order."
+        },
+        "keywords": {
+          "label": "Search keywords",
+          "help": "One keyword per line. The plugin searches matching playlists across all platforms every day and imports them; already-imported ones are skipped automatically to avoid duplicate imports."
+        },
+        "keywordSearchPlatforms": {
+          "label": "Platforms for keyword search",
+          "help": "Choose which platforms the \"Search keywords\" feature searches for playlists; unselected platforms are not searched. Empty by default (search all platforms).",
+          "options": {
+            "netease": "Netease Cloud Music",
+            "qq": "QQ Music",
+            "kugou": "Kugou",
+            "kuwo": "Kuwo",
+            "migu": "Migu",
+            "qianqian": "Qianqian",
+            "soda": "Soda",
+            "fivesing": "5sing",
+            "jamendo": "Jamendo",
+            "joox": "JOOX",
+            "bilibili": "Bilibili",
+            "apple": "Apple Music"
+          }
+        },
+        "minSongs": {
+          "label": "Min playlist song count",
+          "help": "A playlist is only kept/imported when its song count is greater than this value, to avoid importing empty playlists."
+        },
+        "filterPlatforms": {
+          "label": "Playlist filter platforms",
+          "help": "Choose which platforms appear in the \"Filter playlists\" dropdown on the playlist page; unselected platforms do not appear in the filter list. All selected by default.",
+          "options": {
+            "netease": "Netease Cloud Music",
+            "qq": "QQ Music",
+            "kugou": "Kugou",
+            "kuwo": "Kuwo",
+            "migu": "Migu",
+            "qianqian": "Qianqian",
+            "soda": "Soda",
+            "fivesing": "5sing",
+            "jamendo": "Jamendo",
+            "joox": "JOOX",
+            "bilibili": "Bilibili",
+            "apple": "Apple Music"
+          }
+        },
+        "scheduleEnabled": {
+          "label": "Participate in daily scheduled sync",
+          "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+        },
+        "runOnBoot": {
+          "label": "Fetch once on container startup",
+          "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+        }
+      }
+    }
+  }
 }

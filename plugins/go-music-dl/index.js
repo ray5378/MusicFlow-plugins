@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.4",
+    version: "1.6.5",
     type: "source",
     schedules: true,
     description:
@@ -58,7 +58,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.2/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.5/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -130,6 +130,173 @@ globalThis.__mfPlugin = { manifest: {
         { value: "apple", label: "Apple Music" },
       ] },
     ],
+  
+    documentation: "### 功能介绍\n全网音乐源聚合插件（go-music-dl 三合一）：在线搜索、每日推荐歌单、远程歌单拉取、音频流播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面三项能力合并为单个插件，共用一份服务地址配置。\n\n### 处理逻辑\n1. 核心按能力遍历启用插件：搜索走 `search`、每日推荐走 `recommend`、远程歌单走 `playlistSongs`、播放走 `stream`（`streamUrl` 构造可播地址）、歌词走 `lyricProvider`、封面走 `coverProvider`；\n2. 所有能力基于 `host.config` 里的 baseUrl 指向局域网部署的 go-music-dl 服务，由该服务完成各平台（QQ / 网易 / 酷狗 / 咪咕等）的聚合抓取与解密；\n3. 在线歌曲的过期清理（`webRotation` 能力）由核心定时器调度，按保留天数回收不再被引用的 web 歌曲与封面。\n\n### 沙箱说明\n本插件运行在 QuickJS 虚拟机内(方案 B 沙箱):代码拿不到 Node 的任何能力,网络只能通过 `host.http`(自带超时),配置经 `host.config` 实时读取;`permissions` 声明了 `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。\n\n## 配置\n- `baseUrl`（必填）：go-music-dl 网页服务地址，如 `http://192.168.1.10:18080`；\n- `sources`：搜索平台多选（默认全部）；\n- `webSongsMode` / `webSongsRetentionDays`：web 歌曲保留策略与清理天数；\n- `homeCount`：首页「平台精选」每个平台展示的歌单数（1~50，默认 6，所有平台相同）；\n- 启用后可在插件页「测试连接」验证服务可达。\n\n### 我的私人歌单（路径 B：持久、不轮转）\n配置 `username` / `password`（go-music-dl 网页后台登录凭据）并开启 `同步我的私人歌单` 后，插件会**每日自动登录**，把各平台「我的歌单」（仅网易云 / QQ / 酷狗 / 汽水，酷我 / 咪咕不支持）作为**持久本地歌单**同步（固定 id `pl-gmdl-mine-<平台>-<歌单id>`，不参与每日轮转清理）。\n\nv1.2.9 起，插件通过 manifest `longRunning` 声明 `runDailyJob`（240s）与 `playlistSongs`（60s）的长耗时预算（需后端 ≥ 1.7.39），配合后端**异步任务通道**，**一次「手动刷新」即可全量同步**全部私人歌单（约 1~2 分钟），不再受沙箱 15s 配额限制需分批多次触发；进度持久化游标仍保留（防中断续传）。歌单内歌曲刷新策略：优先匹配本地曲库（含本地曲库池 O(1) 匹配），未命中的写入外部占位条目，由后端在 upsert 后自动触发的后台 auto-match（主进程、不受 15s 限制）继续补全为可播条目。手动刷新：`POST /rest/api/v1/recommend/refresh` 传 `{\"pluginId\":\"go-music-dl\"}`（异步启动，前端轮询 `GET /rest/api/v1/plugins/go-music-dl/job` 查进度）。\n\n### 健康自检\n实现了可选  钩子：检查 baseUrl 是否配置并探测服务可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s）。",
+    i18n: {
+  "en": {
+    "name": "go-music-dl All-in-One (Aggregator)",
+    "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search automatically limits the number of platforms (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox.",
+    "platformLabels": {
+      "netease": "Netease Cloud Music",
+      "qq": "QQ Music",
+      "kugou": "Kugou",
+      "kuwo": "Kuwo",
+      "migu": "Migu",
+      "qianqian": "Qianqian",
+      "soda": "Soda",
+      "fivesing": "5sing",
+      "jamendo": "Jamendo",
+      "joox": "JOOX",
+      "bilibili": "Bilibili",
+      "apple": "Apple Music"
+    },
+    "groups": {
+      "recommend": "Recommend",
+      "schedule": "Scheduling",
+      "backend": "Backend",
+      "keyword": "Keyword Search",
+      "frontend": "Frontend"
+    },
+    "fields": {
+      "baseUrl": {
+        "label": "Service address",
+        "help": "Enter the web service address of go-music-dl deployed on your LAN (shared by source / lyrics / cover)"
+      },
+      "username": {
+        "label": "Login username",
+        "help": "go-music-dl web backend login username. Leave empty to skip login and only sync public recommended playlists; when filled, the plugin logs in automatically every day and syncs each platform \"My Playlists\""
+      },
+      "password": {
+        "label": "Login password",
+        "help": "go-music-dl web backend login password (sent via system proxy/direct, stored only in plugin config, never exposed)"
+      },
+      "importMyPlaylists": {
+        "label": "Sync my private playlists",
+        "help": "When on, the plugin logs in automatically every day and incrementally syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent local playlists: never rotated, never cleaned; one batch per sync (within the sandbox 15s quota), progress persisted and resumed across days until everything is covered, and tracks within playlists are automatically refreshed into playable entries (missing local tracks backfilled in the background); when off, only public recommendations are synced."
+      },
+      "sources": {
+        "label": "Search platforms",
+        "help": "Platforms used for search/matching (defaults to the top 4 domestic platforms if unset). Every search is auto-reordered domestic-first and capped at 5 platforms to avoid a single timeout from searching all platforms (incl. overseas bilibili/JOOX/Apple).",
+        "options": {
+          "netease": "Netease Cloud Music",
+          "qq": "QQ Music",
+          "kugou": "Kugou",
+          "kuwo": "Kuwo",
+          "migu": "Migu",
+          "qianqian": "Qianqian",
+          "soda": "Soda",
+          "fivesing": "5sing",
+          "jamendo": "Jamendo",
+          "joox": "JOOX",
+          "bilibili": "Bilibili",
+          "apple": "Apple Music"
+        }
+      },
+      "webSongsMode": {
+        "label": "Web songs",
+        "options": {
+          "keep": "Never expire",
+          "rotate": "Periodic cleanup"
+        }
+      },
+      "webSongsRetentionDays": {
+        "label": "Retention days",
+        "help": "Online songs (and their covers) older than this many days that are no longer referenced by any playlist/favorite are auto-cleaned; those still in playlists or favorites are unaffected. 0 days = remove as soon as taken offline."
+      },
+      "recommendPlatforms": {
+        "label": "Home recommend platforms",
+        "help": "Choose which platform playlists appear in the \"Platform Picks\" section on the home page; unselected platforms will not appear. All selected by default.",
+        "options": {
+          "netease": "Netease Cloud Music",
+          "qq": "QQ Music",
+          "kugou": "Kugou",
+          "kuwo": "Kuwo",
+          "migu": "Migu",
+          "qianqian": "Qianqian",
+          "soda": "Soda",
+          "fivesing": "5sing",
+          "jamendo": "Jamendo",
+          "joox": "JOOX",
+          "bilibili": "Bilibili",
+          "apple": "Apple Music"
+        }
+      },
+      "homeCount": {
+        "label": "Platform home playlists",
+        "help": "Number of playlists shown per platform in the \"Platform Picks\" section on the home page (1~50, default 6). The same value is used for all platforms."
+      },
+      "includeRecommendPlaylists": {
+        "label": "Include other recommended playlists",
+        "help": "When on, the \"Platform Picks\" section on the home page also includes content from other recommend playlist plugins (e.g. QQ/Kugou/Netease charts)."
+      },
+      "sortOrder": {
+        "label": "Home display order",
+        "help": "go-music-dl display order on the home page; lower value sorts first. Other recommend playlist plugins (QQ/Kugou/Netease charts) have their own sort value (1~100, default 10)."
+      },
+      "sortBySortOrder": {
+        "label": "Sort by sort order",
+        "help": "When on, all platform sections are arranged by each plugin configured \"Home display order\"; when off, they are arranged by plugin registration order."
+      },
+      "keywords": {
+        "label": "Search keywords",
+        "help": "One keyword per line. The plugin searches matching playlists across all platforms every day and imports them; already-imported ones are skipped automatically to avoid duplicate imports."
+      },
+      "keywordSearchPlatforms": {
+        "label": "Platforms for keyword search",
+        "help": "Choose which platforms the \"Search keywords\" feature searches for playlists; unselected platforms are not searched. Empty by default (search all platforms).",
+        "options": {
+          "netease": "Netease Cloud Music",
+          "qq": "QQ Music",
+          "kugou": "Kugou",
+          "kuwo": "Kuwo",
+          "migu": "Migu",
+          "qianqian": "Qianqian",
+          "soda": "Soda",
+          "fivesing": "5sing",
+          "jamendo": "Jamendo",
+          "joox": "JOOX",
+          "bilibili": "Bilibili",
+          "apple": "Apple Music"
+        }
+      },
+      "minSongs": {
+        "label": "Min playlist song count",
+        "help": "A playlist is only kept/imported when its song count is greater than this value, to avoid importing empty playlists."
+      },
+      "filterPlatforms": {
+        "label": "Playlist filter platforms",
+        "help": "Choose which platforms appear in the \"Filter playlists\" dropdown on the playlist page; unselected platforms do not appear in the filter list. All selected by default.",
+        "options": {
+          "netease": "Netease Cloud Music",
+          "qq": "QQ Music",
+          "kugou": "Kugou",
+          "kuwo": "Kuwo",
+          "migu": "Migu",
+          "qianqian": "Qianqian",
+          "soda": "Soda",
+          "fivesing": "5sing",
+          "jamendo": "Jamendo",
+          "joox": "JOOX",
+          "bilibili": "Bilibili",
+          "apple": "Apple Music"
+        }
+      },
+      "scheduleEnabled": {
+        "label": "Participate in daily scheduled sync",
+        "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+      },
+      "runOnBoot": {
+        "label": "Fetch once on container startup",
+        "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+      },
+      "batchParallel": {
+        "label": "Allow parallel execution",
+        "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+      }
+    },
+    "documentation": "### Features\nAn all-in-one music source aggregator (go-music-dl): online search, daily recommended playlists, remote playlist fetching, audio streaming, plus LRC lyrics and cover art for online songs. Source / lyrics / cover are merged into a single plugin sharing one service address config.\n\n### How it works\n1. The core walks enabled plugins by capability: search via `search`, daily recommendations via `recommend`, remote playlists via `playlistSongs`, playback via `stream` (builds a playable URL from `streamUrl`), lyrics via `lyricProvider`, covers via `coverProvider`;\n2. Every capability uses `host.config.baseUrl` to point at the go-music-dl service deployed on your LAN, which does the aggregated fetching and decryption for all platforms (QQ / Netease / Kugou / Migu and more);\n3. Expired online-song cleanup (`webRotation` capability) is scheduled by the core timer, reclaiming web songs and covers no longer referenced beyond the retention days.\n\n### Sandbox notes\nThis plugin runs inside the QuickJS VM (sandbox plan B): the code cannot reach any Node capability, networking goes only through `host.http` (with built-in timeout), and config is read live via `host.config`; `permissions` declares `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`.\n\n## Configuration\n- `baseUrl` (required): the go-music-dl web service address, e.g. `http://192.168.1.10:18080`;\n- `sources`: search platforms (multi-select, all by default);\n- `webSongsMode` / `webSongsRetentionDays`: web-song retention policy and cleanup days;\n- `homeCount`: playlists shown per platform in the \"Platform Picks\" section on the home page (1~50, default 6, same for all platforms);\n- After enabling, use \"Test connection\" on the plugin page to verify the service is reachable.\n\n### My private playlists (path B: persistent, never rotated)\nAfter configuring `username` / `password` (go-music-dl web backend login credentials) and enabling `Sync my private playlists`, the plugin logs in automatically every day and syncs each platform's \"My Playlists\" (only Netease / QQ / Kugou / Soda; Kuwo / Migu are not supported) as persistent local playlists (fixed ids `pl-gmdl-mine-<platform>-<playlist-id>`, excluded from the daily rotation cleanup).\n\nSince v1.2.9 the plugin declares long-running budgets via manifest `longRunning` (`runDailyJob` 240s and `playlistSongs` 60s; requires backend >= 1.7.39). Combined with the backend async task channel, a single \"manual refresh\" syncs all private playlists in full (about 1~2 minutes) — no longer limited by the sandbox 15s quota that forced multiple batched triggers; the persisted progress cursor is kept (resumable after interruption). Track refresh strategy: match the local library first (including the O(1) local library pool), write external placeholders for misses, and let the backend's background auto-match (main process, not limited by 15s) triggered after upsert continue completing them into playable entries. Manual refresh: `POST /rest/api/v1/recommend/refresh` with `{\"pluginId\":\"go-music-dl\"}` (starts asynchronously; poll `GET /rest/api/v1/plugins/go-music-dl/job` for progress).\n\n### Health check\nImplements the optional `health()` hook: checks whether baseUrl is configured and probes service reachability. The plugin management page's \"Health check\" actively pings plugins that implement self-checks (results cached for 60s)."
+  }
+},
   },
 
   create(host) {

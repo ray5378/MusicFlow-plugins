@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.11",
+    version: "1.5.12",
     type: "scrobbler",
     schedules: true,
     description:
@@ -43,7 +43,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.5.9/listenbrainz.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.5.12/listenbrainz.tar.gz",
     // 首页固定卡:核心按此聚合(manifest.homePlaylistId 指向本插件生成的固定歌单)。
     homePlaylistId: "pl-lb-recommend",
     configSchema: [
@@ -139,6 +139,77 @@ globalThis.__mfPlugin = {
         help: "短于该时长的曲目不记录正式收听(ListenBrainz 官方建议忽略 30 秒以下)",
       },
     ],
+  
+    documentation: "### 功能介绍\n双功能官方插件：\n1. **播放记录上报（scrobbler）**：把 MusicFlow 的播放事件上报到 ListenBrainz（开始播放上报「正在播放」，播放达标上报正式收听），计入听歌统计；支持指向自建实例。\n2. **推荐歌单（recommendPlaylist）**：每天按 ListenBrainz 协同过滤推荐，生成一张固定歌单「ListenBrainz」（id：`pl-lb-recommend`）。推荐 MBID 经元数据接口换出曲名后，艺人/专辑经 **MusicBrainz** 单曲接口补全（ListenBrainz metadata 不返回艺人信息）；先在本曲库匹配为可播条目；匹配不到的经已启用的在线源（go-music-dl 等）补全为可播条目；都没有则保留为外部占位（仅展示，含艺人/专辑）。\n\n### 处理逻辑\n1. 核心按 `scrobbler` 能力在播放开始/达标时调用 `onPlay` / `onScrobble`；\n2. 核心按 `recommendPlaylist` 能力每日调度调用 `runDailyJob`：间隔闸门（默认 1 天，未到则跳过）→ 拉取 `top`/`similar`/`raw` 协同过滤推荐 → LB 元数据换名 + MusicBrainz 补全艺人/专辑 → 本地匹配 / 在线补全 / 外部占位 → 写入固定歌单（封面取第一首有封面的曲目，宿主兜底自动扫描）；\n3. **手动刷新**：在插件设置页点「立即刷新」或在 `/v1/recommend/refresh` 传 `pluginId: \"listenbrainz\"`，会以 `force` 绕过间隔闸门强制重生成该插件自己的歌单。\n\n### 在线补全与长耗时预算（v1.5.5）\n沙箱对交互调用有 15s 看门狗,而拉取 listenbrainz.org(外网)推荐 + MusicBrainz 兜底 + 在线补全较慢。v1.5.5 通过 manifest `longRunning` 声明 `runDailyJob`(120s)长耗时预算(需后端 ≥ 1.7.39),配合后端**异步任务通道**——手动刷新立即返回,任务在后台跑完,前端轮询 `GET /rest/api/v1/plugins/listenbrainz/job` 查进度,不再被沙箱 15s / 前端 axios 15s 卡死。在线补全预算闸(90s)仍保留:超预算的歌写外部占位,由后端 upsert 后自动触发的后台 auto-match(主进程、不受限)继续补全为可播条目。\n\n### 沙箱说明\n运行在 QuickJS 虚拟机内：网络经 `host.http`，曲库匹配经 `host.songs.search`，在线补全经 `host.sources.complete`，写歌单经 `host.playlists.upsert`，间隔状态经 `host.storage`。所需权限：`net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。MusicBrainz 请求带 User-Agent 并按 1 秒 1 次的限流节奏串行。\n\n### 健康自检\n实现了可选 `health()` 钩子：检查用户名/Token 是否配置，并轻量探测 API 可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s），未实现的插件显示「未监控」。",
+    i18n: {
+  "en": {
+    "name": "ListenBrainz Scrobbling + Recommendations",
+    "description": "Reports playback history to ListenBrainz (an open-source Last.fm alternative) and every day generates a \"ListenBrainz\" recommendation playlist via collaborative filtering (name resolution prefers listening history + LB metadata, with MusicBrainz only as a fallback with retries/budget, auto-degrading when the direct connection is unreachable; declares a long-running budget via manifest.longRunning so the whole generation completes in a single task over the backend async task channel). Runs in the QuickJS sandbox.",
+    "groups": {
+      "schedule": "Scheduling"
+    },
+    "fields": {
+      "username": {
+        "label": "ListenBrainz username",
+        "help": "Your ListenBrainz username used to fetch collaborative-filtering recommendation playlists (see listenbrainz.org/settings)"
+      },
+      "playlistModes": {
+        "label": "Recommendation types",
+        "help": "Which collaborative-filtering recommendations to fetch (multi-select); merged and deduplicated into a single playlist",
+        "options": {
+          "top": "Top artists",
+          "similar": "Similar artists",
+          "raw": "Raw model"
+        }
+      },
+      "perModeCount": {
+        "label": "Candidates per type",
+        "help": "Number of candidate tracks fetched for each recommendation type (1~100, default 25)"
+      },
+      "refreshIntervalDays": {
+        "label": "Refresh interval (days)",
+        "help": "Daily scheduling is skipped when fewer than this many days have passed since the last generation (manual refresh still forces regeneration). Default 1 day."
+      },
+      "showOnHome": {
+        "label": "Show on home page",
+        "help": "Whether to pin the \"ListenBrainz\" playlist at the top of the home page (sorted by position below)"
+      },
+      "homePosition": {
+        "label": "Home display position",
+        "help": "The position (starting at 1) among the pinned cards at the top of the home page. 0 = not pinned. It must not conflict with other plugins that have \"Show on home page\" enabled; validated automatically on save."
+      },
+      "userToken": {
+        "label": "User token",
+        "help": "Get the User token from https://listenbrainz.org/settings/ (used to report playback history)"
+      },
+      "apiUrl": {
+        "label": "API address",
+        "help": "Keep the official instance default; fill in your own address if self-hosting ListenBrainz"
+      },
+      "submitPlayingNow": {
+        "label": "Submit \"Now Playing\"",
+        "help": "When off, only a formal listen is recorded once playback reaches the threshold; the current track is not synced in real time."
+      },
+      "minDuration": {
+        "label": "Min duration (seconds)",
+        "help": "Tracks shorter than this duration are not recorded as formal listens (ListenBrainz official recommendation is to ignore anything under 30 seconds)"
+      },
+      "scheduleEnabled": {
+        "label": "Participate in daily scheduled sync",
+        "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+      },
+      "runOnBoot": {
+        "label": "Fetch once on container startup",
+        "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+      },
+      "batchParallel": {
+        "label": "Allow parallel execution",
+        "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+      }
+    },
+    "documentation": "### Features\nA dual-function official plugin:\n1. **Scrobbling (`scrobbler`)**: reports MusicFlow playback events to ListenBrainz (reports \"Now Playing\" on start and a formal listen once the threshold is reached), counting toward your listening stats; supports pointing at a self-hosted instance.\n2. **Recommendation playlist (`recommendPlaylist`)**: every day generates a fixed \"ListenBrainz\" playlist (id: `pl-lb-recommend`) from ListenBrainz collaborative-filtering recommendations. Recommended MBIDs are resolved to track names via the metadata API; artist/album info is completed through the **MusicBrainz** single-track API (ListenBrainz metadata does not return artist info); tracks are first matched as playable entries in the local library; misses are backfilled via enabled online sources (e.g. go-music-dl); anything left becomes an external placeholder (display only, with artist/album).\n\n### How it works\n1. The core calls `onPlay` / `onScrobble` by the `scrobbler` capability at playback start / threshold;\n2. The core schedules `runDailyJob` daily by the `recommendPlaylist` capability: interval gate (default 1 day, skipped if not due) → fetch `top`/`similar`/`raw` collaborative-filtering recommendations → resolve names via LB metadata + complete artist/album via MusicBrainz → local match / online backfill / external placeholder → write the fixed playlist (cover taken from the first track with one; the host auto-scans as a fallback);\n3. **Manual refresh**: click \"Refresh now\" on the plugin settings page or POST `pluginId: \"listenbrainz\"` to `/v1/recommend/refresh` to force regeneration of this plugin's own playlist with `force`, bypassing the interval gate.\n\n### Online backfill and long-running budget (v1.5.5)\nThe sandbox watchdog limits interactive calls to 15s, while fetching listenbrainz.org (external network) recommendations + MusicBrainz fallback + online backfill is slow. v1.5.5 declares a long-running budget via manifest `longRunning` (`runDailyJob` 120s; requires backend >= 1.7.39). Combined with the backend async task channel, a manual refresh returns immediately and the task finishes in the background; the frontend polls `GET /rest/api/v1/plugins/listenbrainz/job` for progress — no longer killed by the sandbox 15s / frontend axios 15s limits. The online-backfill budget gate (90s) is kept: tracks over budget are written as external placeholders, and the backend's background auto-match (main process, unlimited) triggered after upsert continues completing them into playable entries.\n\n### Sandbox notes\nRuns in the QuickJS VM: networking via `host.http`, library matching via `host.songs.search`, online backfill via `host.sources.complete`, playlist writing via `host.playlists.upsert`, interval state via `host.storage`. Required permissions: `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`. MusicBrainz requests carry a User-Agent and run serially at 1 request/second.\n\n### Health check\nImplements the optional `health()` hook: checks whether username/token are configured and lightly probes API reachability. The plugin management page's \"Health check\" actively pings plugins that implement self-checks (results cached for 60s); plugins without it show \"not monitored\"."
+  }
+},
   },
 
   create(host) {

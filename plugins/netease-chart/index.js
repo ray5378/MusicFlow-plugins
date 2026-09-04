@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.6.7",
+    version: "1.6.8",
     type: "recommender",
     schedules: true,
     description:
@@ -27,7 +27,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.6.5/netease-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/netease-chart-v1.6.8/netease-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -62,6 +62,50 @@ globalThis.__mfPlugin = {
     ],
     documentation:
       "### 功能介绍\n自动抓取网易云音乐排行榜并同步到本地音乐库，支持多选榜单，在首页「本地歌单」分区展示（直连本地库播放，无需导入）。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「本地歌单」展示的榜单数量；\n- 首页按所选榜单独立展示分区。",
+  
+    i18n: {
+  "en": {
+    "name": "Netease Charts",
+    "description": "Fetches Netease Cloud Music rankings (Hot, Trending, New Songs, Original) and syncs them into the local library. Multiple charts can be selected; unmatched songs are backfilled via online sources, external placeholders, or the backend auto-match. Charts are shown directly in the \"Local Playlists\" section on the home page, ready to play without import.",
+    "groups": {
+      "recommend": "Recommend",
+      "schedule": "Scheduling"
+    },
+    "fields": {
+      "chartIds": {
+        "label": "Select charts (multi-select)",
+        "help": "Select which Netease Cloud Music charts to sync (multi-select)",
+        "options": {
+          "2884035": "Original Chart",
+          "3778678": "Hot Chart",
+          "3779629": "New Songs Chart",
+          "19723756": "Trending Chart"
+        }
+      },
+      "homeCount": {
+        "label": "Home playlists shown",
+        "help": "How many imported charts to show in the \"Local Playlists\" section on the home page (1~50, default 6)"
+      },
+      "sortOrder": {
+        "label": "Home display order",
+        "help": "Lower value sorts first. QQ Music / Kugou / Netease charts are arranged by this value in the \"Local Playlists\" section on the home page (1~100, default 32)"
+      },
+      "scheduleEnabled": {
+        "label": "Participate in daily scheduled sync",
+        "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+      },
+      "runOnBoot": {
+        "label": "Fetch once on container startup",
+        "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+      },
+      "batchParallel": {
+        "label": "Allow parallel execution",
+        "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+      }
+    },
+    "documentation": "### Features\nAutomatically fetches Netease Cloud Music rankings and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart."
+  }
+},
   },
 
   create(host) {

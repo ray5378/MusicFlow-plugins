@@ -1,7 +1,7 @@
 {
   "id": "playlist-cleaner",
   "name": "歌单清理",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "sync",
   "description": "一键清理低歌曲数歌单：可设置阈值，自动删除歌曲数量低于该值的歌单。支持每日定时自动清理和手动触发。",
   "capabilities": [
@@ -17,7 +17,7 @@
     "playlists:write"
   ],
   "author": "MusicFlow",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.2/playlist-cleaner.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.3/playlist-cleaner.tar.gz",
   "configSchema": [
     {
       "key": "minSongs",
@@ -46,7 +46,7 @@
   "i18n": {
     "en": {
       "name": "Playlist Cleaner",
-      "description": "Clean up low-song-count playlists in one click: set a threshold and it automatically deletes playlists whose song count falls below it. Supports daily scheduled auto-cleanup and manual triggering.",
+      "description": "Clean up low-song playlists in one click: set a minimum song-count threshold to automatically delete playlists with fewer songs. Supports skipping platform-synced and recommended playlists, with daily scheduled cleanup or manual triggering.",
       "groups": {},
       "fields": {
         "minSongs": {

@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "playlist-cleaner",
     name: "歌单清理",
-    version: "1.0.2",
+    version: "1.0.3",
     type: "sync",
     schedules: true,
     description:
@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
     longRunning: { runDailyJob: 120000 },
     permissions: ["playlists:read", "playlists:write"],
     author: "MusicFlow",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.0/playlist-cleaner.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.3/playlist-cleaner.tar.gz",
     configSchema: [
       {
         key: "minSongs",
@@ -53,6 +53,40 @@ globalThis.__mfPlugin = {
         help: "开启后，会跳过每日推荐、本地推荐等系统推荐歌单，只清理其他歌单。",
       },
     ],
+  
+    i18n: {
+  "en": {
+    "name": "Playlist Cleaner",
+    "description": "Clean up low-song playlists in one click: set a minimum song-count threshold to automatically delete playlists with fewer songs. Supports skipping platform-synced and recommended playlists, with daily scheduled cleanup or manual triggering.",
+    "groups": {},
+    "fields": {
+      "minSongs": {
+        "label": "Min song count",
+        "help": "Playlists whose song count is less than or equal to this value are cleaned up/deleted. For example, entering 5 deletes every playlist with ≤ 5 songs."
+      },
+      "skipSourcePlaylists": {
+        "label": "Skip platform-synced playlists",
+        "help": "When on, playlists synced by platform plugins (such as go-music-dl) are skipped and only locally generated playlists are cleaned."
+      },
+      "skipRecommendPlaylists": {
+        "label": "Skip recommended playlists",
+        "help": "When on, system recommendation playlists such as daily and local recommendations are skipped; only other playlists are cleaned."
+      },
+      "scheduleEnabled": {
+        "label": "Participate in daily scheduled sync",
+        "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+      },
+      "runOnBoot": {
+        "label": "Fetch once on container startup",
+        "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+      },
+      "batchParallel": {
+        "label": "Allow parallel execution",
+        "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+      }
+    }
+  }
+},
   },
 
   create(host) {

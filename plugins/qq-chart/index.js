@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.7",
+    version: "1.6.8",
     type: "recommender",
     schedules: true,
     description:
@@ -30,7 +30,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.6.5/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.6.8/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -75,6 +75,60 @@ globalThis.__mfPlugin = {
     ],
     documentation:
       "### 功能介绍\n自动抓取QQ音乐巅峰榜并同步到本地音乐库，支持多选榜单，在首页「本地歌单」分区展示（直连本地库播放，无需导入）。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 配置首页「本地歌单」展示的榜单数量；\n- 首页按所选榜单独立展示分区。",
+  
+    i18n: {
+  "en": {
+    "name": "QQ Music Charts",
+    "description": "Fetches QQ Music Top Charts (Hot, Douyin Hot, Karaoke Hits, and 14 charts in total) and syncs them into the local library. Multiple charts can be selected; unmatched songs are backfilled via online sources, external placeholders, or the backend auto-match. Charts are shown directly in the \"Local Playlists\" section on the home page, ready to play without import.",
+    "groups": {
+      "recommend": "Recommend",
+      "schedule": "Scheduling"
+    },
+    "fields": {
+      "chartIds": {
+        "label": "Select charts (multi-select)",
+        "help": "Select which QQ Music Top Charts to sync (multi-select)",
+        "options": {
+          "3": "US/UK Chart",
+          "4": "Pop Index Chart",
+          "5": "Mainland Chart",
+          "6": "HK/TW Chart",
+          "26": "Hot Chart (TOP 300)",
+          "27": "Douyin Hot Chart",
+          "36": "Trending Chart",
+          "51": "Online Songs Chart",
+          "52": "Karaoke Hits Chart",
+          "57": "TV/Movie Hits Chart",
+          "59": "Rap Chart",
+          "60": "Electronic Chart",
+          "61": "Guofeng Hot Chart",
+          "62": "New Songs Chart"
+        }
+      },
+      "homeCount": {
+        "label": "Home playlists shown",
+        "help": "How many imported charts to show in the \"Local Playlists\" section on the home page (1~50, default 6)"
+      },
+      "sortOrder": {
+        "label": "Home display order",
+        "help": "Lower value sorts first. QQ Music / Kugou / Netease charts are arranged by this value in the \"Local Playlists\" section on the home page (1~100, default 30)"
+      },
+      "scheduleEnabled": {
+        "label": "Participate in daily scheduled sync",
+        "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+      },
+      "runOnBoot": {
+        "label": "Fetch once on container startup",
+        "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+      },
+      "batchParallel": {
+        "label": "Allow parallel execution",
+        "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+      }
+    },
+    "documentation": "### Features\nAutomatically fetches QQ Music Top Charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart."
+  }
+},
   },
 
   create(host) {

@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "playlist-cleaner",
     name: "歌单清理",
-    version: "1.0.1",
+    version: "1.0.2",
     type: "sync",
     schedules: true,
     description:

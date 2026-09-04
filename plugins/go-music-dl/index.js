@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.3",
+    version: "1.6.4",
     type: "source",
     schedules: true,
     description:

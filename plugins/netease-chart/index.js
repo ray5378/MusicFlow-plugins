@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.6.6",
+    version: "1.6.7",
     type: "recommender",
     schedules: true,
     description:

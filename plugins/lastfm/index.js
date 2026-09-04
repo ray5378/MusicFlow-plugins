@@ -36,7 +36,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lastfm",
     name: "Last.fm 播放记录 + 推荐",
-    version: "1.0.5",
+    version: "1.0.6",
     type: "scrobbler",
     schedules: true,
     description:

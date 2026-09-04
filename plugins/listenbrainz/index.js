@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.10",
+    version: "1.5.11",
     type: "scrobbler",
     schedules: true,
     description:

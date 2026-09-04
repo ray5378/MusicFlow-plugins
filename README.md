@@ -125,6 +125,15 @@ MusicFlow ≥ v1.13.43 起，宿主把**所有批量任务**（同步 / 导入 /
 插件侧**无需**为此做任何代码或 manifest 改动（是否声明 `longRunning` 只影响该插件有没有独立 worker 线程，不影响开关是否出现）。完整约定见
 [docs/PLUGIN_DEV.md §3.3](https://github.com/ray5378/MusicFlow/blob/master/docs/PLUGIN_DEV.md)。
 
+## 国际化（i18n）契约（强制）
+
+插件**面向用户的文案**必须接入 i18n，禁止裸中文硬编码；主项目 CI 守卫强制（未接入即红）：
+
+- **manifest 声明**：`plugin.json` 与 `index.js` 的 manifest 都要带 `i18n` 字段（`{ zh?, en? }`，默认中文，`zh` 可省略只须补 `en`），覆盖 `name / description` 与 `configSchema` 各字段的 `label / help / options`，以及 `documentation`（详情弹窗的 Markdown 文档）。
+- **两份 manifest 都要写**：`plugin.json` 供市场展示；`index.js` 是**沙箱权威**（运行时只读它）——只写 `plugin.json`，英文界面读不到。
+- **注入开关**：宿主注入的 `scheduleEnabled / runOnBoot / batchParallel` 也必须在 `i18n.en.fields` 补英文 `label / help`，否则英文模式显示中文。
+- **校验**：发布前跑 `node scripts/check.mjs`（含 i18n 键一致性校验）；主项目 `check-frontend-plugins.mjs` 会验证插件列表 / 详情弹窗渲染所用文案已本地化。
+
 ## 沙箱安全模型（MusicFlow ≥ 1.3.0）
 
 外置插件运行在 **QuickJS 虚拟机**（WASM）里，与主进程完全隔离：

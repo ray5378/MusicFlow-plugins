@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "netease-chart",
     name: "网易云榜单",
-    version: "1.6.8",
+    version: "1.6.9",
     type: "recommender",
     schedules: true,
     description:
@@ -181,8 +181,16 @@ globalThis.__mfPlugin = {
       return id;
     }
 
-    async function completeOnline(title, artist) {
-      try { var res = await host.sources.complete({ artist: artist, title: title }); return res && res.songId ? res.songId : null; } catch (e) { return null; }
+    // 导入命中门禁:透传专辑/时长(秒),宿主按「标题+歌手+专辑+时长」全维度核实。
+    async function completeOnline(title, artist, album, durationMs) {
+      try {
+        var res = await host.sources.complete({
+          artist: artist, title: title,
+          album: album || "",
+          duration: durationMs > 0 ? Math.round(durationMs / 1000) : 0,
+        });
+        return res && res.songId ? res.songId : null;
+      } catch (e) { return null; }
     }
 
     /** 抓取单个榜单并处理成 entries */
@@ -206,7 +214,7 @@ globalThis.__mfPlugin = {
         try { localId = await matchLocal(title, artist, album, duration, cache); } catch (e) { localId = null; }
         if (localId) { entries.push({ songId: localId }); matched++; continue; }
         var completedId = null;
-        try { completedId = await completeOnline(title, artist); } catch (e) { completedId = null; }
+        try { completedId = await completeOnline(title, artist, album, duration); } catch (e) { completedId = null; }
         if (completedId) { entries.push({ songId: completedId }); online++; continue; }
         entries.push({ externalSongId: "netease:" + songId, externalTitle: title, externalArtist: artist, externalAlbum: album, externalDuration: duration > 0 ? duration : null });
         external++;

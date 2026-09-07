@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.12",
+    version: "1.5.13",
     type: "scrobbler",
     schedules: true,
     description:
@@ -619,7 +619,7 @@ globalThis.__mfPlugin = {
         // 2) 在线源补全(go-music-dl 等已启用 source);失败走外部占位
         let completedId = null;
         try {
-          const res = await host.sources.complete({ artist: m.artist, title: m.title });
+          const res = await host.sources.complete({ artist: m.artist, title: m.title, album: m.album || "", duration: m.duration > 0 ? Math.round(m.duration / 1000) : 0 }); // 导入命中门禁:透传专辑/时长供核实
           if (res && res.songId) completedId = res.songId;
         } catch (e) { host.log(`在线补全失败 ${m.title}: ${e.message}`); }
         if (completedId) {

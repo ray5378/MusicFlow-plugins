@@ -36,7 +36,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lastfm",
     name: "Last.fm 播放记录 + 推荐",
-    version: "1.0.7",
+    version: "1.0.8",
     type: "scrobbler",
     schedules: true,
     description:
@@ -541,7 +541,7 @@ globalThis.__mfPlugin = {
         // 2) 在线源补全(go-music-dl 等已启用 source)
         let completedId = null;
         try {
-          const res = await host.sources.complete({ artist: it.artist, title: it.title });
+          const res = await host.sources.complete({ artist: it.artist, title: it.title, album: it.album || "", duration: 0 }); // 导入命中门禁:透传专辑供核实
           if (res && res.songId) completedId = res.songId;
         } catch (e) { host.log("在线补全失败 " + it.title + ": " + e.message); }
         if (completedId) {

@@ -20,20 +20,22 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "huawei-chart",
     name: "华为音乐榜单",
-    version: "1.0.0",
+    version: "1.1.0",
     type: "recommender",
     schedules: true,
     description:
-      "抓取华为音乐官方榜单（热歌榜、新歌榜、抖音热门榜、每日推荐、年代热歌榜、公告牌/UK/Melon等32个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。",
-    capabilities: ["localPlatformRecommend"],
+      "抓取华为音乐官方榜单（热歌榜、新歌榜、抖音热门榜、每日推荐、年代热歌榜、公告牌/UK/Melon等32个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。同时支持搜索华为音乐官方歌单（榜单同款接口），可在歌单页与 go-music-dl 一样参与「聚合」搜索或单独搜索并导入，歌单页「筛选歌单」下拉含华为音乐平台。",
+    capabilities: ["localPlatformRecommend", "playlistSearch", "playlistSongs"],
+    platforms: ["huawei"],
+    platformLabels: { huawei: "华为音乐" },
     defaultEnabled: true,
     minAppVersion: "1.7.39",
-    longRunning: { runDailyJob: 120000 },
+    longRunning: { runDailyJob: 120000, searchPlaylists: 20000, playlistSongs: 120000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.0.0/huawei-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.1.0/huawei-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -92,6 +94,16 @@ globalThis.__mfPlugin = {
         type: "number",
         default: 33,
         help: "数值越小越靠前。QQ榜单(30)/酷狗榜单(31)/网易云榜单(32)/华为音乐榜单(33)按此值在首页「本地歌单」分区排列(1~100,默认 33)",
+      },
+      {
+        key: "filterPlatforms",
+        label: "歌单筛选平台",
+        group: "frontend",
+        type: "multiselect",
+        options: [
+          { value: "huawei", label: "华为音乐" },
+        ],
+        help: "选择在歌单页「筛选歌单」下拉中显示哪些平台,未选中的平台不会出现在筛选列表。默认全选。",
       },
     ],
     documentation:
@@ -152,6 +164,13 @@ globalThis.__mfPlugin = {
         "label": "Home display order",
         "help": "Lower value sorts first. QQ (30) / Kugou (31) / Netease (32) / Huawei Music (33) charts are arranged by this value in the \"Local Playlists\" section on the home page (1~100, default 33)"
       },
+      "filterPlatforms": {
+        "label": "Playlist filter platforms",
+        "help": "Choose which platforms appear in the \"Filter playlists\" dropdown on the playlist page; unselected platforms do not appear in the filter list. All selected by default.",
+        "options": {
+          "huawei": "Huawei Music"
+        }
+      },
       "scheduleEnabled": {
         "label": "Participate in daily scheduled sync",
         "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
@@ -165,7 +184,7 @@ globalThis.__mfPlugin = {
         "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
       }
     },
-    "documentation": "### Features\nAutomatically fetches Huawei Music official charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart."
+        "documentation": "### Features\nAutomatically fetches Huawei Music official charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Playlist search (new in v1.1.0)\nLike go-music-dl: joins the \"aggregate\" search mode on the playlist page and can be selected standalone to search Huawei Music official playlists; open a playlist to preview/play directly or import it into the library (imported songs go through the same import-gate cross-verification).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart;\n- \"Playlist filter platforms\" controls whether Huawei Music appears in the playlist page filter dropdown."
   }
 },
   },
@@ -207,6 +226,10 @@ globalThis.__mfPlugin = {
     };
     var CHART_API =
       "https://portal-drcn.music.dbankcloud.cn/music-operation-service/v1/service/chart/detail/bychartid";
+    var SEARCH_API =
+      "https://portal-drcn.music.dbankcloud.cn/music-search-service/v9/service/fuzzysearch";
+    var MUSICLIST_API =
+      "https://portal-drcn.music.dbankcloud.cn/music-operation-service/v1/service/musiclist/detail/bymusiclistid";
     var H5_HOME = "https://portal-drcn.music.dbankcloud.cn/music-apph5-service/h5/index.html";
     var PLAYLIST_PREFIX = "pl-huawei-chart-";
 
@@ -218,6 +241,21 @@ globalThis.__mfPlugin = {
       var r = await host.http(url, {
         method: "GET",
         headers: { "User-Agent": "Mozilla/5.0 (compatible; MusicFlow/1.0)", Referer: H5_HOME },
+        timeout: 15000,
+      });
+      if (!r.ok) throw new Error("HTTP " + (r.status == null ? "?" : r.status) + ": " + url);
+      try { return JSON.parse(r.body); } catch (e) { throw new Error("JSON 解析失败: " + (e.message || e)); }
+    }
+
+    async function postJson(url, payload) {
+      var r = await host.http(url, {
+        method: "POST",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; MusicFlow/1.0)",
+          Referer: H5_HOME,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
         timeout: 15000,
       });
       if (!r.ok) throw new Error("HTTP " + (r.status == null ? "?" : r.status) + ": " + url);
@@ -293,6 +331,79 @@ globalThis.__mfPlugin = {
       return 0;
     }
 
+    /** 歌单搜索结果里创建者昵称:contentExInfo.nickName 优先,退回 cpID。 */
+    function playlistCreator(item) {
+      try {
+        var ex = JSON.parse(item.contentExInfo || "{}");
+        if (ex.nickName) return ex.nickName;
+      } catch (e) { /* 忽略 */ }
+      return String(item.cpID || "华为音乐");
+    }
+
+    /** 搜索华为音乐官方歌单(playlistSearch 能力,fuzzysearch contentType=4)。
+     *  返回结构与 go-music-dl 一致:歌单页「聚合」模式与单插件模式共用。 */
+    async function searchPlaylists(config, params) {
+      var query = String((params && params.query) || "").trim();
+      if (!query) return { playlists: [] };
+      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 30, 1), 50);
+      var data = await postJson(SEARCH_API, { queryWord: query, contentType: "4", start: 0, limit: limit });
+      var lists = (data && data.musicListSimpleInfos) || [];
+      var playlists = [];
+      for (var i = 0; i < lists.length; i++) {
+        var it = lists[i] || {};
+        var id = String(it.contentID || "").trim();
+        var name = String(it.contentName || it.keyName || "").trim();
+        if (!id || !name) continue;
+        var cover = "";
+        try { cover = String((it.picture && (it.picture.bigImgURL || it.picture.middleImgURL || it.picture.smallImgURL)) || ""); } catch (e) { cover = ""; }
+        playlists.push({
+          id: id,
+          source: "huawei",
+          name: name,
+          creator: playlistCreator(it),
+          cover: cover,
+          trackCount: parseInt(it.totalCount, 10) || 0,
+          link: H5_HOME,
+        });
+      }
+      host.log("华为音乐歌单搜索「" + query + "」命中 " + playlists.length + " 个歌单");
+      return { playlists: playlists };
+    }
+
+    /** 拉取一个华为歌单内的歌曲(playlistSongs 能力,供「加入库」导入)。
+     *  导入侧由核心 crossVerifySongs 逐首门禁核实,此处只如实返回源数据。 */
+    async function playlistSongs(config, source, id) {
+      // 非 huawei 来源(含冒烟调用的对象形态参数)安全返回空,不抛错。
+      if (source !== "huawei") return { songs: [] };
+      var lid = String(id || "").trim();
+      if (!lid) return { songs: [] };
+      var songs = [];
+      var PAGE = 100, MAX = 500;
+      for (var start = 0; start < MAX; start += PAGE) {
+        var data = await fetchJson(MUSICLIST_API + "?musicListID=" + encodeURIComponent(lid) + "&start=" + start + "&limit=" + PAGE);
+        var ex = (data && data.musicListInfoEx) || {};
+        var batch = ex.songSimpleInfos || [];
+        for (var i = 0; i < batch.length; i++) {
+          var it = batch[i] || {};
+          if (it.contentType && String(it.contentType) !== "1") continue; // 只收歌曲
+          var name = String(it.contentName || "").trim();
+          if (!name) continue;
+          songs.push({
+            id: String(it.contentID || "").trim(),
+            source: "huawei",
+            name: name,
+            artist: String(it.artistName || "").trim(),
+            album: String(it.albumName || "").trim(),
+            duration: extractDurationSec(it),
+            cover: "",
+          });
+        }
+        if (batch.length < PAGE) break;
+      }
+      host.log("华为音乐歌单 " + lid + " 拉取 " + songs.length + " 首");
+      return { songs: songs };
+    }
+
     /** 抓取单个榜单并处理成 entries */
     async function fetchAndProcess(chartId, cache) {
       var chartName = CHART_NAME[chartId] || ("榜单 " + chartId);
@@ -334,6 +445,12 @@ globalThis.__mfPlugin = {
     }
 
     return {
+      /** 歌单搜索(playlistSearch):参与歌单页「聚合」搜索,也可单独选择本插件搜索。 */
+      searchPlaylists: searchPlaylists,
+
+      /** 歌单内歌曲(playlistSongs):供歌单搜索「加入库」导入(核心经门禁交叉核实)。 */
+      playlistSongs: playlistSongs,
+
       /** 首页本地歌单分区(localPlatformRecommend)：直接读取本插件每日同步入库的榜单歌单。
        *  封面/数量均取自本地库(DB)字段，真实且无网络依赖；点击即本地播放，三端统一走
        *  本地库直连。未同步入库的榜单不展示。 */

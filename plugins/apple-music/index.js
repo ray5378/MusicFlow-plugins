@@ -38,7 +38,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "apple-music",
     name: "Apple Music 榜单",
-    version: "1.0.0",
+    version: "1.0.1",
     type: "recommender",
     schedules: true,
     description:
@@ -53,7 +53,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.0/apple-music.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.1/apple-music.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -342,13 +342,22 @@ globalThis.__mfPlugin = {
       var PAGE = 100;
       var offset = 0;
       while (offset < max) {
-        var d = await apiGet("/playlists/" + encodeURIComponent(plId) + "/tracks", { limit: PAGE, offset: offset });
+        var d;
+        try {
+          d = await apiGet("/playlists/" + encodeURIComponent(plId) + "/tracks", { limit: PAGE, offset: offset });
+        } catch (e) {
+          // Apple 对越界 offset 返回 404(而非空列表):恰好满页(如 100 首)
+          // 时首片取满会多请求一页,此处按「已取完」处理,不能让整单报废
+          if (offset > 0 && /(^|\D)404(\D|$)/.test(String((e && e.message) || e))) break;
+          throw e;
+        }
         var data = d.data || [];
         for (var i = 0; i < data.length; i++) {
           var it = attrToSongItem(data[i]);
           if (it.title) songs.push(it);
         }
-        if (data.length < PAGE) break;
+        // 优先以响应 next 字段判断是否有下一页,其次按片长判断
+        if (!d.next || data.length < PAGE) break;
         offset += PAGE;
       }
       return songs;

@@ -25,3 +25,7 @@ jobs:
           node-version: 22
       - name: 校验全部插件(scripts/check.mjs)
         run: node scripts/check.mjs
+      # 导入命中门禁契约:所有 host.sources.complete 调用必须透传 album+duration,
+      # 缺失会被宿主四维门禁(albumRequired 默认开)整批拒导且无报错。
+      - name: 校验导入门禁契约(scripts/gate-check.mjs)
+        run: node scripts/gate-check.mjs

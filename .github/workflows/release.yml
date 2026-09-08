@@ -79,6 +79,10 @@ jobs:
             fi
             node scripts/check.mjs "$ID"
 
+            # 导入命中门禁契约:complete 调用必须透传 album+duration(缺回归批拒绝)。
+            # 发版链阻塞——此步失败则该插件不出 Release。
+            node scripts/gate-check.mjs "$ID"
+
             # 读取版本号
             VERSION="$(node -e "process.stdout.write(require('./plugins/$ID/plugin.json').version)")"
             TAG="${ID}-v${VERSION}"

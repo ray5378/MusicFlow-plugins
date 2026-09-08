@@ -1,0 +1,238 @@
+{
+  "id": "apple-music",
+  "name": "Apple Music 榜单",
+  "version": "1.0.0",
+  "type": "recommender",
+  "description": "抓取 Apple Music 中国区官方榜单并同步到本地库：每日热门歌曲（charts API）、每周热门 100 首（大陆/全球/香港/韩/日/美，官方歌单 ID 永久固定）、城市 Top 25（上海/北京/成都/广州/武汉）、热门歌单排行（官方 RSS 每日动态排名）。歌曲自带标题/歌手/专辑/时长，门禁四维核实有料可核。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。同时支持搜索 Apple Music 官方歌单与歌曲：歌单页/歌曲页「聚合」搜索或单独搜索并导入，歌曲搜索同时作为歌单导入门禁的同平台核实源。Apple 无全曲直链（仅 30s 试听），落库为空直链 web 行，首播自动换源出流。",
+  "capabilities": [
+    "localPlatformRecommend",
+    "playlistSearch",
+    "playlistSongs",
+    "search",
+    "songSearch"
+  ],
+  "platforms": [
+    "apple"
+  ],
+  "platformLabels": {
+    "apple": "Apple Music"
+  },
+  "defaultEnabled": true,
+  "minAppVersion": "1.7.39",
+  "longRunning": {
+    "runDailyJob": 180000,
+    "searchPlaylists": 20000,
+    "playlistSongs": 120000,
+    "search": 20000,
+    "searchSongs": 20000
+  },
+  "permissions": [
+    "net",
+    "storage",
+    "songs:read",
+    "songs:write",
+    "playlists:write"
+  ],
+  "author": "ray5378",
+  "homepage": "https://github.com/ray5378/MusicFlow-plugins",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.0/apple-music.tar.gz",
+  "configSchema": [
+    {
+      "key": "chartIds",
+      "label": "选择榜单（可多选）",
+      "type": "multiselect",
+      "required": true,
+      "options": [
+        {
+          "value": "daily-songs",
+          "label": "每日热门歌曲"
+        },
+        {
+          "value": "weekly-cn",
+          "label": "每周热门100首·中国大陆"
+        },
+        {
+          "value": "weekly-global",
+          "label": "每周热门100首·全球"
+        },
+        {
+          "value": "weekly-hk",
+          "label": "每周热门100首·中国香港"
+        },
+        {
+          "value": "weekly-kr",
+          "label": "每周热门100首·韩国"
+        },
+        {
+          "value": "weekly-jp",
+          "label": "每周热门100首·日本"
+        },
+        {
+          "value": "weekly-us",
+          "label": "每周热门100首·美国"
+        },
+        {
+          "value": "city-shanghai",
+          "label": "城市榜 Top25·上海"
+        },
+        {
+          "value": "city-beijing",
+          "label": "城市榜 Top25·北京"
+        },
+        {
+          "value": "city-chengdu",
+          "label": "城市榜 Top25·成都"
+        },
+        {
+          "value": "city-guangzhou",
+          "label": "城市榜 Top25·广州"
+        },
+        {
+          "value": "city-wuhan",
+          "label": "城市榜 Top25·武汉"
+        },
+        {
+          "value": "hot-today",
+          "label": "今日热门（官方歌单）"
+        },
+        {
+          "value": "hot-mandopop",
+          "label": "热播金曲·国语流行"
+        },
+        {
+          "value": "alist-mandopop",
+          "label": "A-List·国语流行"
+        },
+        {
+          "value": "hot-playlists-top10",
+          "label": "热门歌单排行 TopN（每日动态）"
+        }
+      ],
+      "default": [
+        "daily-songs"
+      ],
+      "help": "选择要同步的 Apple Music 官方榜单/歌单，可以多选。每周热门/城市榜/固定歌单的 pl. ID 由 Apple 官方长期维护，内容自动更新。"
+    },
+    {
+      "key": "hotPlaylistCount",
+      "label": "热门歌单排行数量",
+      "type": "number",
+      "default": 10,
+      "help": "选择「热门歌单排行 TopN」时,每日同步榜单前几名官方歌单(1~30,默认 10)"
+    },
+    {
+      "key": "homeCount",
+      "label": "首页展示歌单数",
+      "group": "recommend",
+      "type": "number",
+      "default": 6,
+      "help": "首页「本地歌单」展示多少个已入库榜单(1~50,默认 6)"
+    },
+    {
+      "key": "sortOrder",
+      "label": "首页显示顺序",
+      "group": "recommend",
+      "type": "number",
+      "default": 34,
+      "help": "数值越小越靠前。QQ榜单(30)/酷狗榜单(31)/网易云榜单(32)/华为音乐榜单(33)/Apple Music榜单(34)按此值在首页「本地歌单」分区排列(1~100,默认 34)"
+    },
+    {
+      "key": "filterPlatforms",
+      "label": "歌单筛选平台",
+      "group": "frontend",
+      "type": "multiselect",
+      "options": [
+        {
+          "value": "apple",
+          "label": "Apple Music"
+        }
+      ],
+      "help": "选择在歌单页「筛选歌单」下拉中显示哪些平台,未选中的平台不会出现在筛选列表。默认全选。"
+    },
+    {
+      "key": "scheduleEnabled",
+      "label": "参与每日定时同步",
+      "group": "schedule",
+      "type": "switch",
+      "default": true,
+      "help": "关闭后,每天定点那次自动同步会跳过本插件(手动刷新按钮仍然可用)。"
+    },
+    {
+      "key": "runOnBoot",
+      "label": "容器启动时拉取一次",
+      "group": "schedule",
+      "type": "switch",
+      "default": false,
+      "help": "打开后,MusicFlow 每次启动/重启会补拉一次本插件的歌单(适合榜单类插件保持最新)。"
+    }
+  ],
+  "documentation": "### 功能介绍\n自动抓取 Apple Music 中国区官方榜单并同步到本地音乐库，支持多选榜单，在首页「本地歌单」分区展示（直连本地库播放，无需导入）。榜单构成：每日热门歌曲（charts API）、每周热门 100 首、城市 Top 25（官方编辑歌单，ID 永久固定）、热门歌单排行（官方 RSS 每日动态排名）。\n\n### 歌单/歌曲搜索\n与 go-music-dl 一致：歌单页搜索模式下既参与「聚合」搜索，也可单独选择本插件搜索 Apple Music 官方歌单；点开歌单可预览/直接播放或「加入库」（导入歌曲经导入门禁交叉核实）。歌曲搜索同时作为门禁的同平台核实源。\n\n### 直链说明\nApple 仅提供 30 秒试听，无全曲直链：入库为空直链 web 行，首播由核心换源兜底自动出流（与华为音乐榜单同款形态）。\n\n### 配置说明\n- 选择要同步的榜单，可以多选；\n- 「热门歌单排行 TopN」控制每日动态同步榜单前几名官方歌单；\n- 配置首页「本地歌单」展示的榜单数量；\n- 「歌单筛选平台」控制歌单页「筛选歌单」下拉是否显示 Apple Music。",
+  "schedules": true,
+  "i18n": {
+    "en": {
+      "name": "Apple Music Charts",
+      "description": "Fetches Apple Music (China storefront) official charts into the local library: Daily Top Songs (charts API), Weekly Hot 100 (Mainland/Global/HK/KR/JP/US, permanent official playlist IDs), City Top 25 (Shanghai/Beijing/Chengdu/Guangzhou/Wuhan), and the Hot Playlists ranking (official RSS, updated daily). Songs carry title/artist/album/duration for full import-gate verification. Charts are shown directly in the \"Local Playlists\" section on the home page, ready to play without import. Also searches Apple Music official playlists and songs: joins the \"aggregate\" search modes or can be selected standalone; song search doubles as the same-catalog verification source for the import gate. Apple offers no full-track links (30s previews only), so songs are stored as empty-URL web rows and resolved via the source-fallback on first play.",
+      "groups": {
+        "recommend": "Recommend",
+        "schedule": "Scheduling",
+        "frontend": "Frontend"
+      },
+      "fields": {
+        "chartIds": {
+          "label": "Select charts (multi-select)",
+          "help": "Select which Apple Music official charts/playlists to sync (multi-select). Weekly/City/fixed playlists use permanent official pl. IDs maintained by Apple.",
+          "options": {
+            "daily-songs": "Daily Top Songs",
+            "weekly-cn": "Weekly Hot 100 · Mainland China",
+            "weekly-global": "Weekly Hot 100 · Global",
+            "weekly-hk": "Weekly Hot 100 · Hong Kong, China",
+            "weekly-kr": "Weekly Hot 100 · Korea",
+            "weekly-jp": "Weekly Hot 100 · Japan",
+            "weekly-us": "Weekly Hot 100 · USA",
+            "city-shanghai": "City Top 25 · Shanghai",
+            "city-beijing": "City Top 25 · Beijing",
+            "city-chengdu": "City Top 25 · Chengdu",
+            "city-guangzhou": "City Top 25 · Guangzhou",
+            "city-wuhan": "City Top 25 · Wuhan",
+            "hot-today": "Today's Hits (official playlist)",
+            "hot-mandopop": "Hot Tracks: Mandopop",
+            "alist-mandopop": "A-List: Mandopop",
+            "hot-playlists-top10": "Hot Playlists Top N (daily)"
+          }
+        },
+        "hotPlaylistCount": {
+          "label": "Hot Playlists Top N",
+          "help": "When \"Hot Playlists Top N\" is selected, how many top-ranked official playlists to sync daily (1~30, default 10)"
+        },
+        "homeCount": {
+          "label": "Home playlists shown",
+          "help": "How many imported charts to show in the \"Local Playlists\" section on the home page (1~50, default 6)"
+        },
+        "sortOrder": {
+          "label": "Home display order",
+          "help": "Lower value sorts first. QQ (30) / Kugou (31) / Netease (32) / Huawei (33) / Apple Music (34) charts are arranged by this value in the \"Local Playlists\" section on the home page (1~100, default 34)"
+        },
+        "filterPlatforms": {
+          "label": "Playlist filter platforms",
+          "help": "Choose which platforms appear in the \"Filter playlists\" dropdown on the playlist page; unselected platforms do not appear in the filter list. All selected by default.",
+          "options": {
+            "apple": "Apple Music"
+          }
+        },
+        "scheduleEnabled": {
+          "label": "Participate in daily scheduled sync",
+          "help": "When off, the daily auto-sync will skip this plugin (the manual refresh button still works)."
+        },
+        "runOnBoot": {
+          "label": "Fetch once on container startup",
+          "help": "When on, MusicFlow will fetch this plugin playlists once on every start/restart (keeps chart-type plugins up to date)."
+        },
+        "batchParallel": {
+          "label": "Allow parallel execution",
+          "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
+        }
+      },
+      "documentation": "### Features\nAutomatically fetches Apple Music (China) official charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed). Chart set: Daily Top Songs (charts API), Weekly Hot 100, City Top 25 (permanent official playlist IDs), Hot Playlists ranking (official RSS, daily).\n\n### Playlist & song search\nLike go-music-dl: joins the \"aggregate\" search modes and can be selected standalone. Open a playlist to preview/play directly or import it into the library; imported songs are cross-verified against Apple Music's own catalog via the import gate (search capability).\n\n### Direct links\nApple provides 30-second previews only — songs are stored as empty-URL web rows and resolved via the core source-fallback on first play (same shape as Huawei Music Charts).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- \"Hot Playlists Top N\" controls how many top-ranked official playlists are synced daily;\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- \"Playlist filter platforms\" controls whether Apple Music appears in the playlist page filter dropdown."
+    }
+  }
+}

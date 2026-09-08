@@ -19,6 +19,7 @@ on:
       - "plugins/qq-chart/**"
       - "plugins/kugou-chart/**"
       - "plugins/netease-chart/**"
+      - "plugins/huawei-chart/**"
   workflow_dispatch:
     inputs:
       pluginIds:

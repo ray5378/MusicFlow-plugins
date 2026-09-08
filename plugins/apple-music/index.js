@@ -38,7 +38,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "apple-music",
     name: "Apple Music 榜单",
-    version: "1.0.3",
+    version: "1.0.4",
     type: "recommender",
     schedules: true,
     description:
@@ -53,7 +53,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.3/apple-music.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.4/apple-music.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -502,7 +502,7 @@ globalThis.__mfPlugin = {
     async function searchSongsImpl(config, params) {
       var query = String((params && params.query) || "").trim();
       if (!query) return { songs: [] };
-      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 20, 1), 50);
+      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 20, 1), 25); // Apple /search 的 limit 上限是 25(26+ 一律 HTTP 400)
       var d = await apiGet("/search", { term: query, types: "songs", limit: limit });
       var data = (((d.results || {}).songs || {}).data) || [];
       var songs = [];
@@ -531,7 +531,7 @@ globalThis.__mfPlugin = {
     async function searchPlaylists(config, params) {
       var query = String((params && params.query) || "").trim();
       if (!query) return { playlists: [] };
-      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 30, 1), 50);
+      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 20, 1), 25); // Apple /search 的 limit 上限是 25(26+ 一律 HTTP 400)
       var d = await apiGet("/search", { term: query, types: "playlists", limit: limit });
       var data = (((d.results || {}).playlists || {}).data) || [];
       var playlists = [];

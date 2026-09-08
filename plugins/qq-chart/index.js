@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "qq-chart",
     name: "QQ音乐榜单",
-    version: "1.6.9",
+    version: "1.7.0",
     type: "recommender",
     schedules: true,
     description:
@@ -30,7 +30,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.6.8/qq-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.7.0/qq-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -166,6 +166,15 @@ globalThis.__mfPlugin = {
     }
 
     async function matchLocal(title, artist, album, durationMs, cache) {
+      // 快速路径:宿主统一匹配器(host.songs.match,核心 v2.3.9+;与「加入库」导入前
+      // 匹配同源同语义,四维评分由核心统一维护)。宿主侧带索引缓存,逐首调用开销低;
+      // 旧宿主无此 API 时回退下方本地实现,行为不变。
+      try {
+        if (host.songs && typeof host.songs.match === "function") {
+          var hostHit = await host.songs.match([{ title: title, artist: artist, album: album, duration: durationMs > 0 ? Math.round(durationMs / 1000) : 0 }]);
+          if (Array.isArray(hostHit)) return hostHit[0] || null;
+        }
+      } catch (e) { /* 回退本地匹配 */ }
       var key = String(title || "") + "|" + String(artist || "");
       if (cache.has(key)) return cache.get(key);
       var tNorm = norm(title);

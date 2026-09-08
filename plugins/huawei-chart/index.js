@@ -20,7 +20,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "huawei-chart",
     name: "华为音乐榜单",
-    version: "1.1.1",
+    version: "1.2.0",
     type: "recommender",
     schedules: true,
     description:
@@ -35,7 +35,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.1.1/huawei-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.2.0/huawei-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -447,22 +447,45 @@ globalThis.__mfPlugin = {
       if (!songs.length) {
         throw new Error("华为音乐" + chartName + "返回空榜单 (chart=" + (chartInfo.contentName || chartId) + ")");
       }
-      var entries = [], matched = 0, online = 0, external = 0;
+      var items = [];
       for (var i = 0; i < songs.length; i++) {
         var item = songs[i] || {};
         var title = String(item.contentName || "").trim();
         if (!title) continue;
-        var artist = String(item.artistName || "").trim();
-        var album = String(item.albumName || "").trim();
-        var duration = extractDurationSec(item) * 1000;
-        var songId = String(item.contentID || "").trim();
-        var localId = null;
-        try { localId = await matchLocal(title, artist, album, duration, cache); } catch (e) { localId = null; }
+        var dSec = extractDurationSec(item);
+        items.push({
+          title: title,
+          artist: String(item.artistName || "").trim(),
+          album: String(item.albumName || "").trim(),
+          durationSec: dSec,
+          durationMs: dSec * 1000,
+          songId: String(item.contentID || "").trim(),
+        });
+      }
+      // 批量库内匹配:宿主统一匹配器(host.songs.match,核心 v2.3.9+;与「加入库」
+      // 导入前匹配同源同语义,四维评分在核心侧统一维护)。旧宿主无此 API 时
+      // 回退本地 matchLocal 逐首匹配,行为不变。
+      var hostIds = null;
+      try {
+        if (host.songs && typeof host.songs.match === "function") {
+          var res = await host.songs.match(items.map(function (it) {
+            return { title: it.title, artist: it.artist, album: it.album, duration: it.durationSec };
+          }));
+          if (Array.isArray(res) && res.length === items.length) hostIds = res;
+        }
+      } catch (e) { hostIds = null; }
+      var entries = [], matched = 0, online = 0, external = 0;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        var localId = hostIds ? (hostIds[i] || null) : null;
+        if (!localId) {
+          try { localId = await matchLocal(it.title, it.artist, it.album, it.durationMs, cache); } catch (e) { localId = null; }
+        }
         if (localId) { entries.push({ songId: localId }); matched++; continue; }
         var completedId = null;
-        try { completedId = await completeOnline(title, artist, album, duration); } catch (e) { completedId = null; }
+        try { completedId = await completeOnline(it.title, it.artist, it.album, it.durationMs); } catch (e) { completedId = null; }
         if (completedId) { entries.push({ songId: completedId }); online++; continue; }
-        entries.push({ externalSongId: "huawei:" + songId, externalTitle: title, externalArtist: artist, externalAlbum: album, externalDuration: duration });
+        entries.push({ externalSongId: "huawei:" + it.songId, externalTitle: it.title, externalArtist: it.artist, externalAlbum: it.album, externalDuration: it.durationMs });
         external++;
       }
       return { chartName: chartName, entries: entries, matched: matched, online: online, external: external };

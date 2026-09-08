@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "listenbrainz",
     name: "ListenBrainz 播放记录 + 推荐",
-    version: "1.5.13",
+    version: "1.5.14",
     type: "scrobbler",
     schedules: true,
     description:
@@ -43,7 +43,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.5.12/listenbrainz.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/listenbrainz-v1.5.14/listenbrainz.tar.gz",
     // 首页固定卡:核心按此聚合(manifest.homePlaylistId 指向本插件生成的固定歌单)。
     homePlaylistId: "pl-lb-recommend",
     configSchema: [
@@ -522,6 +522,15 @@ globalThis.__mfPlugin = {
 
     /** 本地曲库匹配(歌名+歌手硬,时长/专辑软性择优),命中返回 songId。 */
     async function matchLocal(title, artist, album, durationMs) {
+      // 快速路径:宿主统一匹配器(host.songs.match,核心 v2.3.9+;与「加入库」导入前
+      // 匹配同源同语义,四维评分由核心统一维护)。宿主侧带索引缓存,逐首调用开销低;
+      // 旧宿主无此 API 时回退下方本地实现,行为不变。
+      try {
+        if (host.songs && typeof host.songs.match === "function") {
+          var hostHit = await host.songs.match([{ title: title, artist: artist, album: album, duration: durationMs > 0 ? Math.round(durationMs / 1000) : 0 }]);
+          if (Array.isArray(hostHit)) return hostHit[0] || null;
+        }
+      } catch (e) { /* 回退本地匹配 */ }
       const norm = (s) => String(s || "").toLowerCase().replace(/[^\w\u4e00-\u9fa5]/g, "");
       const tNorm = norm(title);
       if (!tNorm) return null;

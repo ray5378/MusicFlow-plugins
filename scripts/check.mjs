@@ -172,7 +172,16 @@ async function checkOne(id) {
     if (na !== nb) fail(id, `两处 ${field} 不一致:\n    index.js:    ${na}\n    plugin.json: ${nb}`);
   }
 
-  // 4) 每项能力都要有对应实现
+  // 4) 通用能力复用检查(原则:横切能力由核心实现并经 host API 暴露,插件禁止复制):
+  //    index.js 若自带本地库匹配实现(matchLocal),必须优先走宿主统一匹配器
+  //    host.songs.match(核心 v2.3.9+,四维评分在核心 libraryMatch 单点维护),
+  //    本地实现只允许作为旧宿主回退。
+  const idxCode = fs.readFileSync(path.join(dir, "index.js"), "utf8");
+  if (/async\s+function\s+matchLocal\s*\(/.test(idxCode) && !idxCode.includes("host.songs.match")) {
+    fail(id, "index.js 自带 matchLocal 本地库匹配实现,但未接入宿主统一匹配器 host.songs.match —— 库内匹配属通用能力,禁止插件复制核心逻辑(本地实现仅允许作为旧宿主回退,须先调 host.songs.match)");
+  }
+
+  // 5) 每项能力都要有对应实现
   for (const cap of manifest.capabilities || []) {
     const need = CAP_METHODS[cap];
     if (!need) continue; // 该能力由核心用配置驱动，无需方法

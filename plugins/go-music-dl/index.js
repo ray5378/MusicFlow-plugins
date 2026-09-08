@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.5",
+    version: "1.6.6",
     type: "source",
     schedules: true,
     description:
@@ -58,7 +58,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.5/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.6/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -794,6 +794,15 @@ globalThis.__mfPlugin = { manifest: {
      *  cache 为调用内 Map(title|artist → id|null),去重跨歌单重复曲目。
      *  durationMs 传毫秒(可空);池(matchInPool)只覆盖前 5000 首,池外全部走本函数。 */
     async function matchLocal(title, artist, album, durationMs, cache) {
+      // 快速路径:宿主统一匹配器(host.songs.match,核心 v2.3.9+;与「加入库」导入前
+      // 匹配同源同语义,四维评分由核心统一维护)。宿主侧带索引缓存,逐首调用开销低;
+      // 旧宿主无此 API 时回退下方本地实现,行为不变。
+      try {
+        if (host.songs && typeof host.songs.match === "function") {
+          var hostHit = await host.songs.match([{ title: title, artist: artist, album: album, duration: durationMs > 0 ? Math.round(durationMs / 1000) : 0 }]);
+          if (Array.isArray(hostHit)) return hostHit[0] || null;
+        }
+      } catch (e) { /* 回退本地匹配 */ }
       const key = String(title || "") + "|" + String(artist || "");
       if (cache.has(key)) return cache.get(key);
       const tNorm = norm(title);

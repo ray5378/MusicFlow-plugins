@@ -38,7 +38,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "apple-music",
     name: "Apple Music 榜单",
-    version: "1.0.2",
+    version: "1.0.3",
     type: "recommender",
     schedules: true,
     description:
@@ -53,7 +53,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.2/apple-music.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.3/apple-music.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -384,10 +384,29 @@ globalThis.__mfPlugin = {
         var id = String(r.id || "").trim();
         var name = String(r.name || "").trim();
         if (!id || !name) continue;
-        out.push({ plId: id, name: name, rank: out.length + 1 });
+        out.push({ plId: id, name: name, rank: out.length + 1, artwork: r.artwork || null });
       }
       if (!out.length) throw new Error("Apple Music 热门歌单排行 RSS 返回空");
       return out;
+    }
+
+    /** 官方歌单封面直链:artwork 模板 {w}x{h} → 指定尺寸;无 artwork 返回空串 */
+    function artworkUrlOf(a, size) {
+      try {
+        var t = String((a && a.url) || "");
+        if (!t) return "";
+        var s = String(size || 600);
+        return t.replace("{w}", s).replace("{h}", s);
+      } catch (e) { return ""; }
+    }
+
+    /** 拉单个官方歌单对象取官方封面直链(attributes.artwork);失败返回空串不阻塞同步 */
+    async function fetchPlaylistCoverUrl(plId) {
+      try {
+        var d = await apiGet("/playlists/" + encodeURIComponent(plId), {});
+        var a = ((d.data || [])[0] || {}).attributes || {};
+        return artworkUrlOf(a.artwork, 600);
+      } catch (e) { return ""; }
     }
 
     // ==================== 通用能力接入(SPEC §1.6.3) ====================
@@ -654,6 +673,7 @@ globalThis.__mfPlugin = {
                   name: "Apple Music·" + dispName,
                   description: "Apple Music 热门歌单排行 #" + hp.rank + " - " + dispName + "，每日自动同步",
                   entries: processed.entries,
+                  coverUrl: artworkUrlOf(hp.artwork, 600),
                   sourcePlatform: SOURCE,
                   sourceUrl: "https://music.apple.com/cn/playlist/" + hp.plId,
                 });
@@ -673,11 +693,14 @@ globalThis.__mfPlugin = {
           taskCount++;
           var items = meta.kind === "chart" ? await fetchDailySongs() : await fetchPlaylistSongsRaw(meta.plId, 200);
           var result = await processItems(items, cache);
+          // 官方歌单封面(charts 每日榜无歌单对象,保持歌内确定性选封)
+          var coverUrl = meta.kind === "playlist" ? await fetchPlaylistCoverUrl(meta.plId) : "";
           host.log("Apple Music " + meta.name + " 同步获取 " + result.entries.length + " 首(本地匹配 " + result.matched + " 首, 在线补全 " + result.online + " 首, 待补全 " + result.external + " 首)");
           await host.playlists.upsert(PLAYLIST_PREFIX + cid, {
             name: "Apple Music·" + meta.name,
             description: "Apple Music 官方榜单 - " + meta.name + "，每日自动同步",
             entries: result.entries,
+            coverUrl: coverUrl,
             sourcePlatform: SOURCE,
             sourceUrl: meta.kind === "playlist" ? ("https://music.apple.com/cn/playlist/" + meta.plId) : "https://music.apple.com/cn/new/top-charts",
           });

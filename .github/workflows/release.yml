@@ -20,6 +20,7 @@ on:
       - "plugins/kugou-chart/**"
       - "plugins/netease-chart/**"
       - "plugins/huawei-chart/**"
+      - "plugins/apple-music/**"
   workflow_dispatch:
     inputs:
       pluginIds:

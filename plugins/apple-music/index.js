@@ -510,7 +510,8 @@ globalThis.__mfPlugin = {
           name: name,
           creator: String(a.curatorName || "Apple Music").trim(),
           cover: cover,
-          trackCount: parseInt(a.trackCount, 10) || 0,
+          // Apple 搜索结果不返回曲目数:仅在确认 >0 时下发,避免前端误显「0 首」
+          trackCount: parseInt(a.trackCount, 10) || undefined,
           link: String(a.url || WEB_HOME),
         });
       }

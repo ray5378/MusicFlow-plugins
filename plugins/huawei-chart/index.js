@@ -20,22 +20,22 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "huawei-chart",
     name: "华为音乐榜单",
-    version: "1.1.0",
+    version: "1.1.1",
     type: "recommender",
     schedules: true,
     description:
-      "抓取华为音乐官方榜单（热歌榜、新歌榜、抖音热门榜、每日推荐、年代热歌榜、公告牌/UK/Melon等32个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。同时支持搜索华为音乐官方歌单（榜单同款接口），可在歌单页与 go-music-dl 一样参与「聚合」搜索或单独搜索并导入，歌单页「筛选歌单」下拉含华为音乐平台。",
-    capabilities: ["localPlatformRecommend", "playlistSearch", "playlistSongs"],
+      "抓取华为音乐官方榜单（热歌榜、新歌榜、抖音热门榜、每日推荐、年代热歌榜、公告牌/UK/Melon等32个榜单）并同步到本地库。支持多选榜单，未匹配的歌曲通过在线源补全或外部占位由后端auto-match补全。首页以「本地歌单」分区直接展示已入库榜单，无需导入即可播放。同时支持搜索华为音乐官方歌单（榜单同款接口），可在歌单页与 go-music-dl 一样参与「聚合」搜索或单独搜索并导入，歌单页「筛选歌单」下拉含华为音乐平台。v1.1.1 起支持搜索华为音乐歌曲：既作为歌单导入门禁的同平台核实源（search），也参与歌曲页「聚合」搜索（songSearch）。",
+    capabilities: ["localPlatformRecommend", "playlistSearch", "playlistSongs", "search", "songSearch"],
     platforms: ["huawei"],
     platformLabels: { huawei: "华为音乐" },
     defaultEnabled: true,
     minAppVersion: "1.7.39",
-    longRunning: { runDailyJob: 120000, searchPlaylists: 20000, playlistSongs: 120000 },
+    longRunning: { runDailyJob: 120000, searchPlaylists: 20000, playlistSongs: 120000, search: 20000, searchSongs: 20000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.1.0/huawei-chart.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/huawei-chart-v1.1.1/huawei-chart.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -112,7 +112,7 @@ globalThis.__mfPlugin = {
     i18n: {
   "en": {
     "name": "Huawei Music Charts",
-    "description": "Fetches Huawei Music official charts (Hot Songs, New Songs, Douyin Hits, Daily Picks, Decade Hot Charts, Billboard/UK/Melon, 32 charts in total) and syncs them into the local library. Multiple charts can be selected; unmatched songs are backfilled via online sources, external placeholders, or the backend auto-match. Charts are shown directly in the \"Local Playlists\" section on the home page, ready to play without import.",
+    "description": "Fetches Huawei Music official charts (Hot Songs, New Songs, Douyin Hits, Daily Picks, Decade Hot Charts, Billboard/UK/Melon, 32 charts in total) and syncs them into the local library. Multiple charts can be selected; unmatched songs are backfilled via online sources, external placeholders, or the backend auto-match. Charts are shown directly in the \"Local Playlists\" section on the home page, ready to play without import. Also searches Huawei Music official playlists and songs: joins the \"aggregate\" search modes or can be selected standalone, like go-music-dl; songs power the same-catalog import-gate verification (search) and the song page aggregate search (songSearch).",
     "groups": {
       "recommend": "Recommend",
       "schedule": "Scheduling"
@@ -184,7 +184,7 @@ globalThis.__mfPlugin = {
         "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
       }
     },
-        "documentation": "### Features\nAutomatically fetches Huawei Music official charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Playlist search (new in v1.1.0)\nLike go-music-dl: joins the \"aggregate\" search mode on the playlist page and can be selected standalone to search Huawei Music official playlists; open a playlist to preview/play directly or import it into the library (imported songs go through the same import-gate cross-verification).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart;\n- \"Playlist filter platforms\" controls whether Huawei Music appears in the playlist page filter dropdown."
+        "documentation": "### Features\nAutomatically fetches Huawei Music official charts and syncs them into the local music library. Supports multi-selecting charts; charts are shown in the \"Local Playlists\" section on the home page (played straight from the local library, no import needed).\n\n### Playlist & song search (new in v1.1.0 / v1.1.1)\nLike go-music-dl: joins the \"aggregate\" search modes and can be selected standalone — playlists on the playlist page (v1.1.0), songs on the music page (v1.1.1). Open a playlist to preview/play directly or import it into the library; imported songs are cross-verified against Huawei's own catalog via the import gate (search capability).\n\n### Configuration\n- Select the charts to sync (multi-select);\n- Configure how many charts the \"Local Playlists\" section shows on the home page;\n- The home page shows a separate section per selected chart;\n- \"Playlist filter platforms\" controls whether Huawei Music appears in the playlist page filter dropdown."
   }
 },
   },
@@ -370,6 +370,39 @@ globalThis.__mfPlugin = {
       return { playlists: playlists };
     }
 
+    /** 搜索华为音乐歌曲(fuzzysearch contentType=1)。
+     *  search 与 searchSongs 同源:search 暴露给核心导入门禁(crossVerifySongs 逐首
+     *  交叉核实必须搜得到同平台候选,否则歌单搜索「加入库」会整单拒导——v1.1.0 缺
+     *  这条道,346 首全部「provider 不支持搜索」拒导即此因),searchSongs 按能力
+     *  契约暴露给歌曲页「聚合」搜索(songSearch 能力)。 */
+    async function searchSongsImpl(config, params) {
+      var query = String((params && params.query) || "").trim();
+      if (!query) return { songs: [] };
+      var limit = Math.min(Math.max(parseInt(params && params.limit, 10) || 20, 1), 50);
+      var data = await postJson(SEARCH_API, { queryWord: query, contentType: 1, start: 0, limit: limit });
+      var lists = (data && data.songSimpleInfos) || [];
+      var songs = [];
+      for (var i = 0; i < lists.length; i++) {
+        var it = lists[i] || {};
+        if (it.contentType && String(it.contentType) !== "1") continue; // 只收歌曲
+        var name = String(it.contentName || "").trim();
+        if (!name) continue;
+        var cover = "";
+        try { cover = String((it.picture && (it.picture.middleImgURL || it.picture.smallImgURL || it.picture.bigImgURL)) || ""); } catch (e) { cover = ""; }
+        songs.push({
+          id: String(it.contentID || "").trim(),
+          source: "huawei",
+          name: name,
+          artist: String(it.artistName || "").trim(),
+          album: String(it.albumName || "").trim(),
+          duration: extractDurationSec(it),
+          cover: cover,
+        });
+      }
+      host.log("华为音乐歌曲搜索「" + query + "」命中 " + songs.length + " 首");
+      return { songs: songs };
+    }
+
     /** 拉取一个华为歌单内的歌曲(playlistSongs 能力,供「加入库」导入)。
      *  导入侧由核心 crossVerifySongs 逐首门禁核实,此处只如实返回源数据。 */
     async function playlistSongs(config, source, id) {
@@ -445,6 +478,12 @@ globalThis.__mfPlugin = {
     }
 
     return {
+      /** 歌曲搜索(search 能力):核心导入门禁 crossVerifySongs 用同平台曲库逐首核实。 */
+      async search(config, params) { return searchSongsImpl(config, params); },
+
+      /** 歌曲搜索(songSearch 能力):参与歌曲页「聚合」搜索,也可单独选择本插件搜索。 */
+      searchSongs: searchSongsImpl,
+
       /** 歌单搜索(playlistSearch):参与歌单页「聚合」搜索,也可单独选择本插件搜索。 */
       searchPlaylists: searchPlaylists,
 

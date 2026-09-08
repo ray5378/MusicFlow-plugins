@@ -38,7 +38,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "apple-music",
     name: "Apple Music 榜单",
-    version: "1.0.1",
+    version: "1.0.2",
     type: "recommender",
     schedules: true,
     description:
@@ -53,7 +53,7 @@ globalThis.__mfPlugin = {
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
-      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.1/apple-music.tar.gz",
+      "https://github.com/ray5378/MusicFlow-plugins/releases/download/apple-music-v1.0.2/apple-music.tar.gz",
     configSchema: [
       {
         key: "chartIds",
@@ -216,6 +216,17 @@ globalThis.__mfPlugin = {
       "alist-mandopop": { name: "A-List·国语流行", kind: "playlist", plId: "pl.beb783da7712481fbeed35be144bd48c" },
       "hot-playlists-top10": { name: "热门歌单排行", kind: "hot" },
     };
+
+    // 固定榜单 plId 反查表:热门排行(RSS)命中的官方歌单若与固定榜单是同一个
+    // (如「今日热门」既在固定榜也在 RSS 排行里),收敛到固定榜单的本地 id,
+    // 避免同一 Apple 歌单落两个重复歌单。
+    var PLID_TO_CID = {};
+    (function () {
+      for (var k in CHARTS) {
+        var m = CHARTS[k];
+        if (m && m.plId) PLID_TO_CID[m.plId] = k;
+      }
+    })();
 
     // ==================== 基础工具 ====================
     function norm(s) {
@@ -614,6 +625,7 @@ globalThis.__mfPlugin = {
       var cache = new Map();
       var totalEntries = 0, totalMatched = 0, totalOnline = 0, totalExternal = 0;
       var successCount = 0, taskCount = 0;
+      var syncedCids = {}; // 本轮已成功同步的固定榜单 cid(供热门排行去重)
 
       for (var i = 0; i < chartIds.length; i++) {
         var cid = chartIds[i];
@@ -627,24 +639,33 @@ globalThis.__mfPlugin = {
             for (var h = 0; h < hot.length; h++) {
               var hp = hot[h];
               taskCount++;
+              // 与固定榜单同一歌单 → 收敛到固定榜单本地 id;该榜本轮已同步过则直接跳过
+              var mappedCid = PLID_TO_CID[hp.plId] || null;
+              if (mappedCid && syncedCids[mappedCid]) {
+                host.log("Apple Music 热门#" + hp.rank + "「" + hp.name + "」= 固定榜单「" + CHARTS[mappedCid].name + "」,本轮已同步,跳过");
+                continue;
+              }
+              var localId = mappedCid ? PLAYLIST_PREFIX + mappedCid : HOT_PREFIX + hp.rank;
+              var dispName = mappedCid ? CHARTS[mappedCid].name : hp.name;
               try {
                 var raw = await fetchPlaylistSongsRaw(hp.plId, 100);
                 var processed = await processItems(raw, cache);
-                await host.playlists.upsert(HOT_PREFIX + hp.rank, {
-                  name: "Apple Music·" + hp.name,
-                  description: "Apple Music 热门歌单排行 #" + hp.rank + " - " + hp.name + "，每日自动同步",
+                await host.playlists.upsert(localId, {
+                  name: "Apple Music·" + dispName,
+                  description: "Apple Music 热门歌单排行 #" + hp.rank + " - " + dispName + "，每日自动同步",
                   entries: processed.entries,
                   sourcePlatform: SOURCE,
                   sourceUrl: "https://music.apple.com/cn/playlist/" + hp.plId,
                 });
+                if (mappedCid) syncedCids[mappedCid] = true;
                 totalEntries += processed.entries.length;
                 totalMatched += processed.matched;
                 totalOnline += processed.online;
                 totalExternal += processed.external;
                 successCount++;
-                host.log("Apple Music 热门#" + hp.rank + "「" + hp.name + "」同步 " + processed.entries.length + " 首(本地匹配 " + processed.matched + ", 在线补全 " + processed.online + ", 待补全 " + processed.external + ")");
+                host.log("Apple Music 热门#" + hp.rank + "「" + dispName + "」同步 " + processed.entries.length + " 首(本地匹配 " + processed.matched + ", 在线补全 " + processed.online + ", 待补全 " + processed.external + ")" + (mappedCid ? " [并入固定榜单 " + mappedCid + "]" : ""));
               } catch (e) {
-                host.log("Apple Music 热门#" + hp.rank + "「" + hp.name + "」同步失败: " + (e.message || e));
+                host.log("Apple Music 热门#" + hp.rank + "「" + dispName + "」同步失败: " + (e.message || e));
               }
             }
             continue;
@@ -660,6 +681,7 @@ globalThis.__mfPlugin = {
             sourcePlatform: SOURCE,
             sourceUrl: meta.kind === "playlist" ? ("https://music.apple.com/cn/playlist/" + meta.plId) : "https://music.apple.com/cn/new/top-charts",
           });
+          syncedCids[cid] = true;
           totalEntries += result.entries.length;
           totalMatched += result.matched;
           totalOnline += result.online;

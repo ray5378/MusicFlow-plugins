@@ -17,7 +17,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "playlist-cleaner",
     name: "歌单清理",
-    version: "1.0.3",
+    version: "1.0.4",
     type: "sync",
     schedules: true,
     description:
@@ -28,7 +28,7 @@ globalThis.__mfPlugin = {
     longRunning: { runDailyJob: 120000 },
     permissions: ["playlists:read", "playlists:write"],
     author: "MusicFlow",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.3/playlist-cleaner.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/playlist-cleaner-v1.0.4/playlist-cleaner.tar.gz",
     configSchema: [
       {
         key: "minSongs",
@@ -92,10 +92,10 @@ globalThis.__mfPlugin = {
   create(host) {
     /** 系统推荐歌单 ID 前缀列表，用于判断是否为推荐歌单 */
     var RECOMMEND_PREFIXES = [
-      "pl-daily-",       // 每日推荐
-      "pl-local-",       // 本地推荐
-      "pl-combo-",       // 今日漫游
-      "pl-recommend-",   // 通用推荐
+      "pl-daily-",       // 系统推荐歌单:每日推荐 pl-daily-today / 本地推荐 pl-daily-local / 今日漫游 pl-daily-roam
+      "pl-random-",      // 随机歌曲 pl-random-songs(random-songs 插件维护,重建期间短暂为空)
+      "pl-lf-recommend", // Last.fm 推荐(lastfm 插件维护)
+      "pl-lb-recommend", // ListenBrainz 推荐(listenbrainz 插件维护)
     ];
 
     /**

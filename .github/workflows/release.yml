@@ -21,6 +21,7 @@ on:
       - "plugins/netease-chart/**"
       - "plugins/huawei-chart/**"
       - "plugins/apple-music/**"
+      - "plugins/playlist-cleaner/**"
   workflow_dispatch:
     inputs:
       pluginIds:

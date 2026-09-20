@@ -18,11 +18,11 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.6",
+    version: "1.6.7",
     type: "source",
     schedules: true,
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索自动限制平台数(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索(歌曲 / 歌单 / 专辑)统一按「搜索平台」配置取源(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
     capabilities: [
       "search",
       "playlistSearch",
@@ -51,20 +51,20 @@ globalThis.__mfPlugin = { manifest: {
     minAppVersion: "1.7.39", // longRunning 方法级长耗时预算需 1.7.39 沙箱
     // 方法级长耗时预算(毫秒):拉平台歌单/外网操作极慢,声明后沙箱按此预算而非默认 15s。
     // runDailyJob:全量同步私人歌单(上限 10 分钟,配合窗口并行拉取);playlistSongs:浏览远程歌单(60s);
-    // searchPlaylists:歌单搜索按全部平台聚合(go-music-dl 后端自身多源并发,通常 2~5s,给 30s 兜底);
-    // searchAlbums:专辑搜索同样按全部平台聚合(30s);searchSongs:歌曲搜索受 pickSearchSources ≤5 截断,15s。
+    // v1.6.7 起歌单/专辑搜索与歌曲搜索同走 pickSearchSources(≤5),不再是全部平台;
+    // searchPlaylists:歌单搜索(30s 兜底);searchAlbums:专辑搜索(30s);searchSongs:歌曲搜索 15s。
     // recommend:首页「平台精选」实时拉取 + 酷狗预热重试,默认定 15s 不够,给 60s 兜底。
     longRunning: { runDailyJob: 600000, playlistSongs: 60000, searchPlaylists: 30000, searchAlbums: 30000, searchSongs: 15000, recommend: 60000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.6/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.7/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
       { key: "password", label: "登录密码", group: "backend", type: "password", help: "go-music-dl 网页后台登录密码(经系统代理/直连发送,仅存于插件配置,不对外暴露)" },
       { key: "importMyPlaylists", label: "同步我的私人歌单", group: "backend", type: "switch", default: true, help: "开启后,插件每日自动登录并分批滚动同步各平台「我的歌单」(网易云 / QQ / 酷狗 / 汽水)为**持久本地歌单**:不轮转、不被清理;每次同步一个批次(沙箱 15s 配额内),进度持久化、跨日推进直至全部覆盖,歌单内歌曲自动刷新为可播条目(本地缺失的交由后台自动补全);关闭则只同步公开推荐" },
-      { key: "sources", label: "搜索平台", group: "backend", type: "multiselect", help: "搜索/匹配时使用的平台(未配置则默认国内 4 平台)。每次搜索自动按国内优先重排并最多取 5 个——避免全平台搜索(含 bilibili/JOOX/Apple 等外网)单次超时。", options: [
+      { key: "sources", label: "搜索平台", group: "backend", type: "multiselect", help: "歌曲 / 歌单 / 专辑搜索与匹配时使用的平台(未配置则默认国内 4 平台)。每次搜索自动按国内优先重排并最多取 5 个——避免全平台搜索(含 bilibili/JOOX/Apple 等外网)单次超时。上游会等齐全部源才返回,单个慢源会拖垮整次搜索,取消勾选即可停用该源。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -100,7 +100,7 @@ globalThis.__mfPlugin = { manifest: {
       { key: "homeCount", label: "平台首页歌单数", group: "recommend", type: "number", help: "首页「平台精选」每个平台展示的歌单数量(1~50,默认 6)。所有平台取同一个值。" },
       { key: "sortOrder", label: "首页显示顺序", group: "recommend", type: "number", default: 10, help: "go-music-dl 本身在首页的显示顺序,数值越小越靠前。其他推荐歌单插件(QQ/酷狗/网易云榜单)各自有自己的排序值(1~100,默认 10)。排序由后端统一聚合处理,不再依赖 go-music-dl 内部合并。" },
       { key: "keywords", label: "搜索关键词", group: "keyword", type: "text", default: "抖音\n热门\n民谣\n经典", help: "每行一个关键词,插件每天自动搜索所有平台匹配的歌单并入库,已入库的自动跳过,不会重复导入" },
-      { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", group: "keyword", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。默认空(搜索全部平台)。", options: [
+      { key: "keywordSearchPlatforms", label: "关键词搜索选择平台", group: "keyword", type: "multiselect", help: "选择「搜索关键词」功能搜索哪些平台的歌单,未选中的平台不会被搜索。留空则跟随「搜索平台」配置(默认国内 4 平台)。", options: [
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -135,7 +135,7 @@ globalThis.__mfPlugin = { manifest: {
     i18n: {
   "en": {
     "name": "go-music-dl All-in-One (Aggregator)",
-    "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search automatically limits the number of platforms (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox.",
+    "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search (songs / playlists / albums) all take their platforms from the \"Search platforms\" setting (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox.",
     "platformLabels": {
       "netease": "Netease Cloud Music",
       "qq": "QQ Music",
@@ -176,7 +176,7 @@ globalThis.__mfPlugin = { manifest: {
       },
       "sources": {
         "label": "Search platforms",
-        "help": "Platforms used for search/matching (defaults to the top 4 domestic platforms if unset). Every search is auto-reordered domestic-first and capped at 5 platforms to avoid a single timeout from searching all platforms (incl. overseas bilibili/JOOX/Apple).",
+        "help": "Platforms used for song / playlist / album search and matching (defaults to the top 4 domestic platforms if unset). Every search is auto-reordered domestic-first and capped at 5 platforms: the upstream service waits for every source before responding, so one slow source times out the whole search — uncheck a platform here to disable it.",
         "options": {
           "netease": "Netease Cloud Music",
           "qq": "QQ Music",
@@ -243,7 +243,7 @@ globalThis.__mfPlugin = { manifest: {
       },
       "keywordSearchPlatforms": {
         "label": "Platforms for keyword search",
-        "help": "Choose which platforms the \"Search keywords\" feature searches for playlists; unselected platforms are not searched. Empty by default (search all platforms).",
+        "help": "Choose which platforms the \"Search keywords\" feature searches for playlists; unselected platforms are not searched. Empty = follow the \"Search platforms\" setting (top 4 domestic platforms by default).",
         "options": {
           "netease": "Netease Cloud Music",
           "qq": "QQ Music",
@@ -937,12 +937,11 @@ globalThis.__mfPlugin = { manifest: {
     const searchPlaylistsImpl = async (config, params) => {
       const q = String((params && params.query) || "").trim();
       if (!q) return { playlists: [] };
-      // 歌单搜索平台:调用方指定 → 插件声明的全部平台。不走歌曲搜索的
-      // pickSearchSources(≤5 截断)——歌单搜索由 go-music-dl 后端自身多源并发聚合,
-      // 一次请求即可带回全部平台结果;长耗时预算由 manifest.longRunning 声明兜底。
-      let sources = Array.isArray(params && params.sources) && params.sources.length
-        ? params.sources.filter((s) => typeof s === "string" && s)
-        : (manifest.platforms || []);
+      // 歌单搜索平台:与歌曲搜索同一套选择逻辑(调用方指定 → 配置 sources → 国内快速默认,
+      // 国内优先 ≤5)。**不再**用 manifest.platforms 全 12 平台:上游 /music/search 会等齐
+      // 全部源才返回,任一慢源(实测咪咕在部分网络恒定卡满 30s)会把整次请求拖到超时,
+      // 歌单/专辑搜索因此长期不可用且用户在配置里取消勾选也无法绕开。
+      const sources = pickSearchSources(config, params);
       const qs = new URLSearchParams({ q, type: "playlist" });
       for (const s of sources) qs.append("sources", s);
       const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 25000);
@@ -1002,13 +1001,12 @@ globalThis.__mfPlugin = { manifest: {
       },
 
       // ===== albumSearch:跨全部平台搜索专辑(结果可「加入库」为专辑歌单) =====
-      // 专辑搜索与歌单搜索同策略:按全部平台聚合,go-music-dl 后端多源并发。
+      // 专辑搜索与歌单搜索同策略:同样吃「搜索平台」配置(不再按全部平台聚合,原因同
+      // searchPlaylistsImpl —— 上游会等齐全部源,慢源一票否决整次请求)。
       async searchAlbums(config, params) {
         const q = String((params && params.query) || "").trim();
         if (!q) return { albums: [] };
-        let sources = Array.isArray(params && params.sources) && params.sources.length
-          ? params.sources.filter((s) => typeof s === "string" && s)
-          : (manifest.platforms || []);
+        const sources = pickSearchSources(config, params);
         const qs = new URLSearchParams({ q, type: "album" });
         for (const s of sources) qs.append("sources", s);
         const html = await httpText(baseOf(config) + "/music/search?" + qs.toString(), 30000);

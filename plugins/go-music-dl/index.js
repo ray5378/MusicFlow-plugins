@@ -18,7 +18,7 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.7",
+    version: "1.6.8",
     type: "source",
     schedules: true,
     description:
@@ -1179,7 +1179,11 @@ globalThis.__mfPlugin = { manifest: {
         for (const srcs of groups) {
           for (const query of queries) {
             try {
-              const html = await httpText(base + "/music/search?" + new URLSearchParams({ q: query, type: "song", sources: srcs.join(",") }).toString(), 15000);
+              // sources 必须逐个 append 重复传参(sources=a&sources=b):服务端用 gin 的
+              // QueryArray 取值,逗号拼接会被当成单一未知源名而被整体丢弃 ⇒ 结果恒为空。
+              const sp = new URLSearchParams({ q: query, type: "song" });
+              for (const s of srcs) sp.append("sources", s);
+              const html = await httpText(base + "/music/search?" + sp.toString(), 15000);
               const sameSource = [];
               const otherSource = [];
               for (const c of parseSongCards(html)) {
@@ -1214,7 +1218,11 @@ globalThis.__mfPlugin = { manifest: {
         }
         if (!song.title) return null;
         const q = (song.artist ? song.artist + " " : "") + song.title;
-        const qs = new URLSearchParams({ q, type: "song", sources: "netease,qq,kugou,kuwo" });
+        // sources 逐个 append 重复传参(理由同 searchLyrics):逗号拼接会让服务端过滤掉
+        // 全部源,返回空结果 ⇒ 封面永远抓不到,只能落占位图。
+        // 取源与其他搜索一致(配置「搜索平台」优先,未配置回落国内快速默认)。
+        const qs = new URLSearchParams({ q, type: "song" });
+        for (const s of pickSearchSources(host.config, null)) qs.append("sources", s);
         try {
           const html = await httpText(base + "/music/search?" + qs.toString(), 15000);
           for (const card of parseSongCards(html)) {

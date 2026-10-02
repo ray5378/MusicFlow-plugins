@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.10",
+    version: "1.0.11",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -61,12 +61,14 @@ globalThis.__mfPlugin = {
     // 但不能只写 longRunning —— 那会把方法路由到 worker 线程,而 worker 下
     // host.jsenv 一律 UNSUPPORTED。longRunningInMain(后端 >= 4.0.76)让这两个方法
     // 拿到长预算 + 软看门狗(await 网络不计时),同时强制留在主线程。
-    longRunning: { test: 300000, health: 300000 },
-    longRunningInMain: ["test", "health"],
+    // search:10 源回退的搜索远超默认 20s 墙钟,且逐源等待网络需要软看门狗
+    // (await 不计时);longRunningInMain 让它们留在主线程(worker 下 jsenv 不可用)。
+    longRunning: { test: 300000, health: 300000, search: 60000, searchSongs: 60000 },
+    longRunningInMain: ["test", "health", "search", "searchSongs"],
     permissions: ["net", "fs", "storage", "log", "jsenv", "crypto", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.10/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.11/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -677,10 +679,16 @@ globalThis.__mfPlugin = {
         "catch(e){globalThis.__lxState.result={ok:false,error:String((e&&e.message)||e)};}})();";
       const r1 = await host.jsenv.execute(rec.envName, boot);
       if (r1 && r1.ok === false) throw new Error("沙箱执行失败: " + (r1.error || "unknown"));
-      const r = await host.jsenv.execute(rec.envName, "JSON.stringify(globalThis.__lxState.result)");
+      // handler 的网络请求可能超过单次 execute 的 pump 预算(宿主 8s):预算耗尽时
+      // __lxState.result 还没写回。每多 execute 一次宿主就 drain 一次网络 + 泵一轮
+      // jobs,所以取到 null 就继续泵,最多 3 轮(累计约 24s 等待上限)。
       let parsed = null;
-      try { parsed = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { parsed = null; }
-      if (!parsed) throw new Error("音源无返回(沙箱交互失败): " + rec.name);
+      for (let wait = 0; wait < 3 && !parsed; wait++) {
+        if (wait > 0) { try { await host.jsenv.execute(rec.envName, "void 0;"); } catch (_) {} }
+        const r = await host.jsenv.execute(rec.envName, "JSON.stringify(globalThis.__lxState.result)");
+        try { parsed = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { parsed = null; }
+      }
+      if (!parsed) throw new Error("音源无返回(沙箱交互失败,已泵 3 轮): " + rec.name);
       if (parsed.ok === false) throw new Error(String(parsed.error || "音源执行失败"));
       return parsed.value;
     }

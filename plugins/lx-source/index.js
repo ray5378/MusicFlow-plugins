@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.1",
+    version: "1.0.2",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -69,20 +69,20 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.1/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.2/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
-        label: "音源列表(英文分号分隔)",
-        type: "text",
-        default: "",
+        label: "音源列表",
+        type: "text-list",
+        default: [],
         required: true,
         help:
-          "用英文分号分隔的洛雪音源,支持三种写法:\n" +
-          "1) .js 文件 URL,如 https://raw.githubusercontent.com/.../latest.js;\n" +
-          "2) 本地文件名(放在「音源文件目录」下,支持子目录),如 huibq/latest.js;\n" +
+          "一行一个洛雪音源(点 + 添加行、✕ 删除行),每行支持三种写法:\n" +
+          "1) .js 文件 URL,如 https://raw.githubusercontent.com/.../latest.js\n" +
+          "2) 本地文件名(放在「音源文件目录」下,支持子目录),如 huibq/latest.js\n" +
           "3) 「显示名=文件名或URL」。\n" +
-          "插件不预置任何音源内容,第三方音源由你自己添加并承担风险。",
+          "所有加入的行都会生效;插件不预置任何音源内容,第三方音源由你自己添加并承担风险。",
       },
       {
         key: "sourceDir",
@@ -115,8 +115,8 @@ globalThis.__mfPlugin = {
         key: "maxSources",
         label: "最多加载音源数",
         type: "number",
-        default: 20,
-        help: "防止同时加载过多脚本把沙箱内存吃满",
+        default: 0,
+        help: "0=不限制,音源列表里所有行都会加载;>0 时只加载前 N 个(防止脚本过多吃满沙箱内存)",
       },
       {
         key: "prefetchStreams",
@@ -181,11 +181,11 @@ globalThis.__mfPlugin = {
           "Warning: this plugin executes third-party source scripts inside your MusicFlow server process; " +
           "add only sources you trust and keep it LAN-only. Disabled by default.",
         fields: {
-          sources: { label: "Sources (semicolon separated)", help: "LX source .js URLs or local file names; use 'Name=...' to rename." },
+          sources: { label: "Sources (one per row)", help: "LX source .js URLs or local file names, one per row; use 'Name=...' to rename." },
           sourceDir: { label: "Source directory", help: "Root dir for local .js sources (default lx-sources); absolute paths ignore this." },
           quality: { label: "Quality", help: "Preferred quality tier when fetching a playable URL." },
           timeoutMs: { label: "Network timeout (ms)", help: "Timeout for a single fetch; on failure the next source is tried." },
-          maxSources: { label: "Max sources", help: "Caps how many scripts load at once." },
+          maxSources: { label: "Max sources", help: "0 = load every row; >0 caps how many scripts load at once." },
           prefetchStreams: { label: "Prefetch stream URLs on search", help: "Resolve playable URLs right after a search and cache them." },
           prefetchMax: { label: "Prefetch cap per search", help: "Max songs to prefetch per search/playlist (1~50)." },
           fallbackOnError: { label: "Auto fallback on error", help: "Try the next source when one errors (403 / anti-bot / script exception)." },
@@ -295,10 +295,11 @@ globalThis.__mfPlugin = {
       return { name: m.name || "", version: m.version || "0.0.0", author: m.author || "", description: m.description || "", updateUrl: m.update_url || "" };
     }
 
-    function parseList(text) {
+    function parseList(v) {
+      // 新配置是 text-list 字符串数组(一行一个);兼容旧版分号/换行分隔的字符串配置
+      const rows = Array.isArray(v) ? v.map((s) => String(s == null ? "" : s)) : String(v || "").split(/[\n;]+/);
       const out = [];
-      String(text || "")
-        .split(";")
+      rows
         .map((s) => s.trim())
         .filter(Boolean)
         .forEach((item) => {
@@ -456,8 +457,9 @@ globalThis.__mfPlugin = {
     }
 
     async function readySources() {
-      const max = clamp(cfgNum("maxSources", 20), 1, 50, 20);
-      const items = parseList(cfg().sources).slice(0, max);
+      const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
+      const all = parseList(cfg().sources);
+      const items = max > 0 ? all.slice(0, max) : all;
       const out = [];
       for (let i = 0; i < items.length; i++) {
         const rec = cache[i] && cache[i].state !== "loading" ? cache[i] : await loadOne(items[i], i);
@@ -600,8 +602,9 @@ globalThis.__mfPlugin = {
     // ---------------- 方法(与 go-music-dl 方法面对齐) ----------------
     return {
       async health() {
-        const max = clamp(cfgNum("maxSources", 20), 1, 50, 20);
-        const items = parseList(cfg().sources).slice(0, max);
+        const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
+        const all = parseList(cfg().sources);
+        const items = max > 0 ? all.slice(0, max) : all;
         const list = [];
         for (let i = 0; i < items.length; i++) list.push(await loadOne(items[i], i));
         return {

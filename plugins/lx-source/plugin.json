@@ -1,7 +1,7 @@
 {
   "id": "lx-source",
   "name": "洛雪音源",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "source",
   "description": "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析@name/@version/@author 头并注册成可用音源,提供取链播放 / 搜索(音源支持时) / 歌词 / 封面。不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源,本插件整体不可用时核心会自动回退到其它已启用 source 插件。注意:本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等价于运行不是你写的程序,请只添加你信任的音源;默认不启用。",
   "capabilities": [
@@ -16,9 +16,30 @@
     "lyricProvider",
     "coverProvider"
   ],
-  "platforms": ["kw", "kg", "tx", "wy", "mg", "bilibili", "other"],
-  "platformLabels": { "kw": "酷我", "kg": "酷狗", "tx": "企鹅音乐", "wy": "网易云", "mg": "咪咕", "bilibili": "哔哩哔哩", "other": "其它" },
-  "sourcePreference": ["wy", "kg", "kw", "tx"],
+  "platforms": [
+    "kw",
+    "kg",
+    "tx",
+    "wy",
+    "mg",
+    "bilibili",
+    "other"
+  ],
+  "platformLabels": {
+    "kw": "酷我",
+    "kg": "酷狗",
+    "tx": "企鹅音乐",
+    "wy": "网易云",
+    "mg": "咪咕",
+    "bilibili": "哔哩哔哩",
+    "other": "其它"
+  },
+  "sourcePreference": [
+    "wy",
+    "kg",
+    "kw",
+    "tx"
+  ],
   "recommendPrefix": "lx://recommend/",
   "defaultEnabled": false,
   "minAppVersion": "1.7.39",
@@ -31,18 +52,26 @@
     "recommend": 60000,
     "recommendPlaylist": 30000
   },
-  "permissions": ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
+  "permissions": [
+    "net",
+    "fs",
+    "storage",
+    "log",
+    "jsenv",
+    "songs:read",
+    "songs:write"
+  ],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.1/lx-source.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.2/lx-source.tar.gz",
   "configSchema": [
     {
       "key": "sources",
-      "label": "音源列表(英文分号分隔)",
-      "type": "text",
-      "default": "",
+      "label": "音源列表",
+      "type": "text-list",
+      "default": [],
       "required": true,
-      "help": "用英文分号分隔的洛雪音源,支持三种写法:\n1) .js 文件 URL,如 https://raw.githubusercontent.com/.../latest.js;\n2) 本地文件名(放在「音源文件目录」下,支持子目录),如 huibq/latest.js;\n3) 「显示名=文件名或URL」。\n插件不预置任何音源内容,第三方音源由你自己添加并承担风险。"
+      "help": "一行一个洛雪音源(点 + 添加行、✕ 删除行),每行支持三种写法:\n1) .js 文件 URL,如 https://raw.githubusercontent.com/.../latest.js\n2) 本地文件名(放在「音源文件目录」下,支持子目录),如 huibq/latest.js\n3) 「显示名=文件名或URL」。\n所有加入的行都会生效;插件不预置任何音源内容,第三方音源由你自己添加并承担风险。"
     },
     {
       "key": "sourceDir",
@@ -56,12 +85,26 @@
       "label": "音质",
       "type": "multiselect",
       "options": [
-        { "value": "128k", "label": "标准 128k" },
-        { "value": "320k", "label": "较高 320k" },
-        { "value": "flac", "label": "无损 flac" },
-        { "value": "flac24bit", "label": "Hi-Res flac24bit" }
+        {
+          "value": "128k",
+          "label": "标准 128k"
+        },
+        {
+          "value": "320k",
+          "label": "较高 320k"
+        },
+        {
+          "value": "flac",
+          "label": "无损 flac"
+        },
+        {
+          "value": "flac24bit",
+          "label": "Hi-Res flac24bit"
+        }
       ],
-      "default": ["320k"],
+      "default": [
+        "320k"
+      ],
       "help": "取播放链接时请求的音质档(洛雪标准档位);音源不支持该档时会明确报错并自动回退下一音源"
     },
     {
@@ -75,8 +118,8 @@
       "key": "maxSources",
       "label": "最多加载音源数",
       "type": "number",
-      "default": 20,
-      "help": "防止同时加载过多脚本把沙箱内存吃满"
+      "default": 0,
+      "help": "0=不限制,音源列表里所有行都会加载;>0 时只加载前 N 个(防止脚本过多吃满沙箱内存)"
     },
     {
       "key": "prefetchStreams",
@@ -120,16 +163,46 @@
       "name": "LX Music Sources",
       "description": "Inlines LX Music source scripts into the MusicFlow sandbox: parses the @name/@version header and registers the sources with stream URL resolving, search (when the source declares it), lyrics and covers. No LX server, no external service address. If a source fails, the next configured source is used automatically; if the whole plugin is unusable, the core falls back to other enabled source plugins. Warning: this plugin executes third-party source scripts inside your MusicFlow server process; add only sources you trust and keep it LAN-only. Disabled by default.",
       "fields": {
-        "sources": { "label": "Sources (semicolon separated)", "help": "LX source .js URLs or local file names; use 'Name=...' to rename." },
-        "sourceDir": { "label": "Source directory", "help": "Root dir for local .js sources (default lx-sources); absolute paths ignore this." },
-        "quality": { "label": "Quality", "help": "Preferred quality tier when fetching a playable URL." },
-        "timeoutMs": { "label": "Network timeout (ms)", "help": "Timeout for a single fetch; on failure the next source is tried." },
-        "maxSources": { "label": "Max sources", "help": "Caps how many scripts load at once." },
-        "prefetchStreams": { "label": "Prefetch stream URLs on search", "help": "Resolve playable URLs right after a search and cache them." },
-        "prefetchMax": { "label": "Prefetch cap per search", "help": "Max songs to prefetch per search/playlist (1~50)." },
-        "fallbackOnError": { "label": "Auto fallback on error", "help": "Try the next source when one errors (403 / anti-bot / script exception)." },
-        "fallbackOnEmpty": { "label": "Auto fallback on empty", "help": "Try the next source when one returns no results." },
-        "sortOrder": { "label": "Home sort order", "help": "Lower value sorts first (1~100)." }
+        "sources": {
+          "label": "Sources (one per row)",
+          "help": "LX source .js URLs or local file names, one per row; use 'Name=...' to rename."
+        },
+        "sourceDir": {
+          "label": "Source directory",
+          "help": "Root dir for local .js sources (default lx-sources); absolute paths ignore this."
+        },
+        "quality": {
+          "label": "Quality",
+          "help": "Preferred quality tier when fetching a playable URL."
+        },
+        "timeoutMs": {
+          "label": "Network timeout (ms)",
+          "help": "Timeout for a single fetch; on failure the next source is tried."
+        },
+        "maxSources": {
+          "label": "Max sources",
+          "help": "0 = load every row; >0 caps how many scripts load at once."
+        },
+        "prefetchStreams": {
+          "label": "Prefetch stream URLs on search",
+          "help": "Resolve playable URLs right after a search and cache them."
+        },
+        "prefetchMax": {
+          "label": "Prefetch cap per search",
+          "help": "Max songs to prefetch per search/playlist (1~50)."
+        },
+        "fallbackOnError": {
+          "label": "Auto fallback on error",
+          "help": "Try the next source when one errors (403 / anti-bot / script exception)."
+        },
+        "fallbackOnEmpty": {
+          "label": "Auto fallback on empty",
+          "help": "Try the next source when one returns no results."
+        },
+        "sortOrder": {
+          "label": "Home sort order",
+          "help": "Lower value sorts first (1~100)."
+        }
       },
       "documentation": "### Features\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and exposes stream URL resolving, search (sources that declare musicSearch/search), lyrics and covers. No LX client and no extra service.\n\n### Capability boundary\nThe LX request protocol only defines musicSearch/musicUrl/lyric/pic actions; album/playlist search and daily recommendations are not part of it, so those methods return an explicit empty result with the reason.\n\n### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources / prefetch;\n- Fallback on error and on empty (auto-switch to the next working source).\n\n### Failure visibility\nDownload errors, syntax errors, top-level throws, sources registering nothing, 403/timeouts are all reported with the original message; silent empty results never happen."
     }

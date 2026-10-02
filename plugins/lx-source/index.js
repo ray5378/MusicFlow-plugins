@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.6",
+    version: "1.0.7",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -57,21 +57,11 @@ globalThis.__mfPlugin = {
     recommendPrefix: "lx://recommend/",
     defaultEnabled: false,
     minAppVersion: "1.7.39",
-    longRunning: {
-      health: 30000,
-      searchSongs: 30000,
-      searchPlaylists: 20000,
-      searchAlbums: 20000,
-      playlistSongs: 45000,
-      recommend: 60000,
-      recommendPlaylist: 30000,
-      // test 要遍历配置里的全部音源并逐个加载(下载 + 沙箱执行),故给足 5 分钟预算。
-      test: 300000,
-    },
+    longRunning: {},
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.6/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.7/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",

@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.9",
+    version: "1.0.10",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -63,10 +63,10 @@ globalThis.__mfPlugin = {
     // 拿到长预算 + 软看门狗(await 网络不计时),同时强制留在主线程。
     longRunning: { test: 300000, health: 300000 },
     longRunningInMain: ["test", "health"],
-    permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
+    permissions: ["net", "fs", "storage", "log", "jsenv", "crypto", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.9/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.10/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -935,6 +935,13 @@ globalThis.__mfPlugin = {
       },
 
       async searchSongs(config, params) {
+        // withFallback 全部音源回退后返回 {empty,message,trace}(无 songs 字段),
+        // 这里补齐 songs:[] 让搜索返回形状恒稳定(核心侧也已加同样防御)。
+        const r = await this.searchSongsInner(config, params);
+        return r && r.songs ? r : Object.assign({ songs: [] }, r);
+      },
+
+      async searchSongsInner(config, params) {
         const q = String((params && (params.query !== undefined ? params.query : params.keyword)) || "");
         if (!q) return { songs: [], message: "搜索词为空" };
         return withFallback("search", async (rec) => {

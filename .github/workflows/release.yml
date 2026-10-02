@@ -22,6 +22,7 @@ on:
       - "plugins/huawei-chart/**"
       - "plugins/apple-music/**"
       - "plugins/playlist-cleaner/**"
+      - "plugins/lx-source/**"
   workflow_dispatch:
     inputs:
       pluginIds:

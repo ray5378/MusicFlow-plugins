@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.4",
+    version: "1.0.5",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -71,7 +71,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.4/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.5/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -342,6 +342,29 @@ globalThis.__mfPlugin = {
     function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
     function isHttpUrl(u) { return typeof u === "string" && /^https?:\/\//i.test(u.trim()); }
 
+    // ---------------- 指纹:隔离每个音源的 jsenv 子环境与加载结果缓存 ----------------
+    // 目标:同一个下标换了脚本时,绝不能再命中上一次的子环境/缓存(否则改完音源列表
+    // 再点测试拿到的是旧结果 —— 假阳性)。md5 优先(需 crypto 权限);权限缺失或宿主
+    // 没提供时退化到内置字符串哈希,不引入任何依赖。
+    function hashStr(s) {
+      let h = 5381;
+      const str = String(s === undefined || s === null ? "" : s);
+      for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) & 0x7fffffff;
+      return h.toString(36);
+    }
+    function fingerprint(parts) {
+      const raw = parts.join("|");
+      try {
+        if (host.crypto && typeof host.crypto.md5 === "function") {
+          const v = host.crypto.md5(raw);
+          if (typeof v === "string" && v.length) return v.slice(0, 16);
+        }
+      } catch (_) {}
+      return "h" + hashStr(raw);
+    }
+    // 缓存 key 只依赖「下标 + 目标串」:下载前就能算出来,命中就不必重复下载/重建环境
+    function cacheKey(item, idx) { return idx + ":" + fingerprint([item.target]); }
+
     // 洛雪 songInfo -> OnlineSongResult(保留原始 musicInfo 供取链/歌词复用)
     function normalizeSongItem(it, rec) {
       if (!it || typeof it !== "object") return null;
@@ -395,29 +418,13 @@ globalThis.__mfPlugin = {
 
     // ---------------- 音源加载(每源一个 jsenv 子环境) ----------------
     const cache = {};
-    let cacheFp = "";
-    // 音源列表(顺序+内容)变化即清空缓存:否则改完列表后的第一次调用会命中旧结果。
-    function syncCache() {
-      const items = parseList(cfg().sources);
-      let h = 5381;
-      const t = JSON.stringify(items.map(function (i) { return i.target + "=" + i.name; }));
-      for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
-      const fp = String(items.length) + "_" + (h >>> 0).toString(36);
-      if (fp !== cacheFp) { cacheFp = fp; for (const k of Object.keys(cache)) delete cache[k]; }
-    }
 
     async function loadOne(item, idx) {
       const dir = cfgStr("sourceDir", "lx-sources");
       const timeoutMs = cfgNum("timeoutMs", 15000);
-      const envName = "lx-source:" + idx;
-      // P1-1:环境名必须带内容指纹。宿主 jsenv.create 对同名环境是直接返回(不重跑
-      // initCode),只按下标命名时「改完音源列表再测」会拿到上一次的加载结果(假阳性)。
-      const lxFp = (code) => {
-        try { if (host.crypto && typeof host.crypto.md5 === "function") return String(host.crypto.md5(String(code))); } catch (_) { /* fallthrough */ }
-        let h = 5381; const t = String(code);
-        for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
-        return String(t.length) + "_" + (h >>> 0).toString(36);
-      };
+      const ck = cacheKey(item, idx);
+      // 先用「目标串」兜个名字(下载失败时也要有 envName 字段),拿到脚本后再换成完整指纹
+      let envName = "lx-source:" + idx + ":" + fingerprint([item.target]);
       let code = null;
       let origin = item.target;
 
@@ -440,26 +447,29 @@ globalThis.__mfPlugin = {
       }
 
       const head = parseLxHeader(code);
-      const envKey = envName + ":" + lxFp(code);
-      const ck = item.target + "|" + lxFp(code);
+      // 完整指纹 = 目标 + 脚本内容长度 + 音源头版本:同一 idx 换了脚本(或同一 URL 内容变了)
+      // 必然得到新的 envName,从而落到全新的子环境上。
+      envName = "lx-source:" + idx + ":" + fingerprint([item.target, code.length, head.version]);
       const rec = {
-        idx: idx, envName: envKey, ckey: ck, name: item.name || head.name || ("src" + idx),
+        idx: idx, envName: envName, cacheKey: ck, name: item.name || head.name || ("src" + idx),
         version: head.version, author: head.author, description: head.description,
         updateUrl: head.updateUrl, origin: origin, state: "loading", error: null,
         sources: [], srcInfo: {}, actions: [], handlers: [], netHits: 0,
       };
 
       try {
-        // 先销毁同名旧环境(P1-1 双保险),再按指纹名创建
-        try { await host.jsenv.destroy(envKey); } catch (_) {}
-        await host.jsenv.create(envKey, SHIM + "\n" + code);
+        // 无条件先销毁同名环境:宿主 jsenv.create 对已存在的同名环境是【直接返回、
+        // 不重跑 initCode】,不清掉的话改了音源列表还会复用旧子环境 —— 测试结果
+        // 就是上一次的(假阳性)。指纹 + 销毁双保险。destroy 对不存在的名字是空操作。
+        try { await host.jsenv.destroy(envName); } catch (_) {}
+        await host.jsenv.create(envName, SHIM + "\n" + code);
       } catch (e) {
         const msg = String((e && e.message) || e);
         rec.state = "error";
         // 顶层抛错(如要求去官网下载新版)必须原样透出,不许注册成空音源
         rec.error = "音源脚本加载失败(执行阶段): " + origin + " -> " + msg;
         log(rec.error);
-        try { await host.jsenv.destroy(envKey); } catch (_) {}
+        try { await host.jsenv.destroy(envName); } catch (_) {}
         return rec;
       }
 
@@ -467,7 +477,7 @@ globalThis.__mfPlugin = {
         const probe = "(function(){try{return JSON.stringify({s:globalThis.__lxState.sources?Object.keys(globalThis.__lxState.sources):null," +
           "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
           "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
-        const r = await host.jsenv.execute(envKey, probe);
+        const r = await host.jsenv.execute(envName, probe);
         let info = null;
         try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
         if (info && info.s && info.s.length) {
@@ -479,7 +489,9 @@ globalThis.__mfPlugin = {
           const acts = {};
           info.s.forEach(function (sid) { ((rec.srcInfo[sid] || {}).actions || []).forEach(function (a) { acts[a] = 1; }); });
           rec.actions = Object.keys(acts);
-          log("音源注册成功: " + rec.name + " v" + rec.version + " 源=" + info.s.join(",") + " actions=" + (rec.actions.join(",") || "-"));
+          // 音源头 @version 常写成 "v1.2.0",无条件补 v 会显示成 vv1.2.0
+          const hver = String(rec.version || "");
+          log("音源注册成功: " + rec.name + " " + (/^v/i.test(hver) ? hver : "v" + (hver || "?")) + " 源=" + info.s.join(",") + " actions=" + (rec.actions.join(",") || "-"));
         } else {
           rec.state = "ready_no_sources";
           // 诊断需要:即使没注册上源,也要把探针带回的 handlers / net 计数留下来
@@ -498,18 +510,22 @@ globalThis.__mfPlugin = {
         rec.error = "音源脚本加载失败(读取注册结果): " + origin + " -> " + String((e && e.message) || e);
         log(rec.error);
       }
-      cache[item.target] = rec;
+      // 同一 idx 换了脚本后旧 key 必须失效,否则 search/stream 会命中上一份 rec
+      Object.keys(cache).forEach(function (k) {
+        if (k !== ck && k.indexOf(idx + ":") === 0) delete cache[k];
+      });
+      cache[ck] = rec;
       return rec;
     }
 
     async function readySources() {
-      syncCache();
       const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
       const all = parseList(cfg().sources);
       const items = max > 0 ? all.slice(0, max) : all;
       const out = [];
       for (let i = 0; i < items.length; i++) {
-        const rec = cache[items[i].target] || await loadOne(items[i], i);
+        const key = cacheKey(items[i], i);
+        const rec = cache[key] && cache[key].state !== "loading" ? cache[key] : await loadOne(items[i], i);
         if (rec.state === "ready") out.push(rec);
       }
       const pref = cfgArr("sourcePreference");
@@ -649,9 +665,8 @@ globalThis.__mfPlugin = {
     // ---------------- 方法(与 go-music-dl 方法面对齐) ----------------
     return {
       async health() {
-        syncCache();
-        // P3-6:与 test 口径一致,全量加载。按 maxSources 截断会让 status 误报 down
-        //(例如 maxSources=1 时只看第一个坏源就判 down,实际后面还有可用源)。
+        // 口径与 test() 对齐:全量加载,不受 maxSources 限制。只扫前 N 个会把后面
+        // 其实可用的音源漏掉,导致 status 被误判成 down(这是 status 约定里的错报)。
         const items = parseList(cfg().sources);
         const list = [];
         for (let i = 0; i < items.length; i++) list.push(await loadOne(items[i], i));
@@ -659,6 +674,8 @@ globalThis.__mfPlugin = {
         // 核心 plugins/health.ts pingPlugin() 只认 {status: ok|degraded|down},缺字段会被判「未监控」:
         // 无音源=degraded(配置缺失),全就绪=ok,部分就绪=degraded,全部失败=down。
         // 原 ok/items/message 字段保持不变,向后兼容已有调用方。
+        const noSrcCount = list.filter((r) => r.state === "ready_no_sources").length;
+        const errCount = list.filter((r) => r.state === "error").length;
         const status = list.length === 0 ? "degraded" : readyCount === 0 ? "down" : readyCount === list.length ? "ok" : "degraded";
         return {
           status: status,
@@ -667,7 +684,11 @@ globalThis.__mfPlugin = {
           message:
             list.length === 0
               ? "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名。"
-              : list.length + " 个音源,就绪 " + readyCount + " 个,失败 " + (list.length - readyCount) + " 个。",
+              // 失败 = 总数 - 就绪(含 ready_no_sources);只数 state==="error" 会出现
+              // 「14 个音源,就绪 7 个,失败 5 个」这种 7+5≠14 的自相矛盾文案。
+              // 括号里把两类失败拆开,三项相加恒等于总数。
+              : list.length + " 个音源,就绪 " + readyCount + " 个,失败 " + (list.length - readyCount) +
+                " 个(注册无源 " + noSrcCount + " 个 / 加载出错 " + errCount + " 个)。",
         };
       },
 
@@ -679,7 +700,6 @@ globalThis.__mfPlugin = {
         try {
           const conf = config && typeof config === "object" ? config : {};
           const raw = Object.prototype.hasOwnProperty.call(conf, "sources") ? conf.sources : cfg().sources;
-          syncCache();
           const items = parseList(raw);
           if (!items.length) {
             return { success: false, message: "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名,再点测试。" };
@@ -690,11 +710,13 @@ globalThis.__mfPlugin = {
             const t = String(s === undefined || s === null ? "" : s).replace(/\s+/g, " ").trim();
             return t.length > n ? t.slice(0, n - 1) + "…" : t;
           };
-          // P2-3:错误摘要截断要保留首尾(错误类型在头、出错 URL/行号在尾),只看开头会丢根因
-          const briefErr = (s, n) => {
+          // 错误摘要:超限时保留【首尾】(前 60 + … + 后 20)。只截尾巴会把根因丢掉
+          // —— HTTP 状态码、异常类型、URL 域名/路径尾部往往就在末段。
+          const briefErr = (s, n, tail) => {
             const t = String(s === undefined || s === null ? "" : s).replace(/\s+/g, " ").trim();
             if (t.length <= n) return t;
-            return t.slice(0, Math.max(10, n - 21)) + "…" + t.slice(-20);
+            const headN = n - tail;
+            return t.slice(0, headN > 0 ? headN : n - 1) + "…" + t.slice(-tail);
           };
 
           const okList = [];
@@ -711,18 +733,18 @@ globalThis.__mfPlugin = {
             else badList.push({ no: i + 1, rec: rec, target: items[i].target });
           }
 
-          const okFull = okList
+          const okItems = okList
             .map(function (o) {
               const r = o.rec;
               const plat = r.sources && r.sources.length ? r.sources.join(",") : "未注册源";
               const acts = r.actions && r.actions.length ? r.actions.join(",") : "-";
-              const vr = String(r.version || "?");
-              return o.no + ". " + brief(r.name || r.origin, 24) + "[" + (/^[vV]/.test(vr) ? vr : "v" + vr) + "](" + plat + ",actions=" + acts + ")";
-            })
-            .join(" | ");
-          const okBrief = okList
-            .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); })
-            .join(" | ");
+              // 音源头 @version 常写成 "v1.2.0",无条件补 v 会显示成 [vv1.2.0]
+              const ver = String(r.version || "");
+              const vtag = /^v/i.test(ver) ? ver : "v" + (ver || "?");
+              return o.no + ". " + brief(r.name || r.origin, 24) + "[" + vtag + "](" + plat + ",actions=" + acts + ")";
+            });
+          const okBriefItems = okList
+            .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); });
           // 不可用明细带诊断后缀:state / handlers / net 三者组合可立刻区分根因
           // handlers=0 且 net=0 -> 脚本没执行或没挂 lx 监听;handlers>0 -> 脚本执行了,
           // 注册卡在网络或宿主能力;net>0 -> 沙箱网络桥已通。
@@ -737,52 +759,33 @@ globalThis.__mfPlugin = {
                 " err=" + String(r.error || "")
             );
           });
-          const badText = badList
+          const badItems = badList
             .map(function (b) {
               const r = b.rec;
               const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ")";
-              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80) + " " + diag;
-            })
-            .join(" | ");
+              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80, 20) + " " + diag;
+            });
 
           const head = "共 " + items.length + " 个音源:可用 " + okList.length + " 个,不可用 " + badList.length + " 个。";
-          // P2-5:各最多列 15 条,超出的用「另有 N 个未显示」明确交代(纯字符截断会
-          // 让可用清单整段消失、不可用后半无声丢弃,与「可用和不可用都有哪些」不符)。
-          const MAX_ROWS = 15;
-          const badRows = badList.slice(0, MAX_ROWS);
-          const okRows = okList.slice(0, MAX_ROWS);
-          const badText2 = badRows
-            .map(function (b) {
-              const r = b.rec;
-              const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ")";
-              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80) + " " + diag;
-            })
-            .join(" | ");
-          const okFull2 = okRows
-            .map(function (o) {
-              const r = o.rec;
-              const plat = r.sources && r.sources.length ? r.sources.join(",") : "未注册源";
-              const acts = r.actions && r.actions.length ? r.actions.join(",") : "-";
-              const vr = String(r.version || "?");
-              return o.no + ". " + brief(r.name || r.origin, 24) + "[" + (/^[vV]/.test(vr) ? vr : "v" + vr) + "](" + plat + ",actions=" + acts + ")";
-            })
-            .join(" | ");
-          const okBrief2 = okRows
-            .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); })
-            .join(" | ");
-          const more = [];
-          if (badList.length > badRows.length) more.push("另有 " + (badList.length - badRows.length) + " 个不可用未显示");
-          if (okList.length > okRows.length) more.push("另有 " + (okList.length - okRows.length) + " 个可用未显示");
-          const moreLine = more.length ? "(明细条数上限 " + MAX_ROWS + " 条/类:" + more.join(";") + ",完整清单见服务端日志)" : "";
-          const badLine = badRows.length ? "不可用 " + badList.length + " 个:" + badText2 : "";
-          const okLine = okRows.length ? "可用 " + okList.length + " 个:" + okFull2 : "";
-          const okLineShort = okRows.length ? "可用 " + okList.length + " 个(摘要):" + okBrief2 : "";
+          // 每侧最多列 15 条,超出的用「另有 X 个…未显示」点明并被日志兜住,
+          // 避免以前那种「整段静默消失 / 无提示硬截断」。
+          const LIST_MAX = 15;
+          const moreNote = (total, shown, label) => (total > shown ? " …另有 " + (total - shown) + " 个" + label + "未显示(详见服务端日志)" : "");
+          const build = (cap, useBriefOk) => {
+            const bl = badList.length
+              ? "不可用 " + badList.length + " 个:" + badItems.slice(0, cap).join(" | ") + moreNote(badList.length, cap, "不可用")
+              : "";
+            const shownOk = useBriefOk ? okBriefItems : okItems;
+            const ol = okList.length
+              ? "可用 " + okList.length + (useBriefOk ? " 个(摘要):" : " 个:") + shownOk.slice(0, cap).join(" | ") + moreNote(okList.length, cap, "可用")
+              : "";
+            return head + (bl ? "\n" + bl : "") + (ol ? "\n" + ol : "");
+          };
 
-          // 超长时先保住不可用明细(排错要紧),再压缩可用明细,最后整体截断兜底
-          let message = head + (moreLine ? "\n" + moreLine : "") + (badLine ? "\n" + badLine : "") + (okLine ? "\n" + okLine : "");
-          if (message.length > 1200 && okRows.length) {
-            message = head + (moreLine ? "\n" + moreLine : "") + (badLine ? "\n" + badLine : "") + (okLineShort ? "\n" + okLineShort : "");
-          }
+          // 降级顺序:15 条明细 -> 8 条明细 -> 可用侧再压缩成纯名称 -> 兜底截断
+          let message = build(LIST_MAX, false);
+          if (message.length > 1200) message = build(8, false);
+          if (message.length > 1200) message = build(8, true);
           if (message.length > 1200) message = message.slice(0, 1199) + "…";
 
           log("test 完成: " + head);

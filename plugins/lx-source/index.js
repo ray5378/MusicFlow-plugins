@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.3",
+    version: "1.0.4",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -71,7 +71,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.3/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.4/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -169,6 +169,13 @@ globalThis.__mfPlugin = {
       "- 回退:音源报错 / 空结果自动回退到下一个可用音源(可分别开关)。\n\n" +
       "### 失败可见\n下载失败、语法错、顶层抛错(如要求去官网下载新版)、未注册任何源、取链 403/超时,\n" +
       "都会给出原文与脚本位置,并记录回退轨迹,绝不静默返回空结果。\n\n" +
+      "### 音源 URL 与「已加载但未注册任何源」\n" +
+      "音源 URL 一律用 https://raw.githubusercontent.com/<owner>/<repo>/<分支>/<路径> 直链:" +
+      "实测部分内网环境可达 raw.githubusercontent.com 但不可达 cdn.jsdelivr.net,用 jsdelivr 会直接「音源下载失败」。\n" +
+      "「已加载但未注册任何源」= 文件下载成功且脚本已在沙箱里执行,但没有完成 sources 注册," +
+      "常见于该音源依赖浏览器环境(window/document/localStorage),或需要宿主下发运行期配置才能初始化。\n" +
+      "排查看「测试」结果明细里的诊断后缀 (state=…,handlers=N,net=M):handlers=0 且 net=0 说明脚本没挂上任何 lx 监听;" +
+      "handlers>0 说明脚本执行了、注册卡在网络或宿主能力;net>0 说明沙箱网络桥已通。\n\n" +
       "### 与 go-music-dl 的分工\ngo-music-dl 覆盖 12 个主流版权平台与首页推荐;本插件走洛雪音源生态\n" +
       "(冷门/下架/长尾聚合 + 音源可自行热替换,不必改代码发版)。两者可并存,核心按\n" +
       "sourcePreference 排序取源;本插件整体不可用时,核心会自动使用 go-music-dl 等其它已启用插件。",
@@ -202,6 +209,13 @@ globalThis.__mfPlugin = {
           "### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n" +
           "### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources / prefetch;\n" +
           "- Fallback on error and on empty (auto-switch to the next working source).\n\n" +
+          "### Source URLs and 'loaded but no sources registered'\n" +
+          "Always use raw.githubusercontent.com direct links (https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>): " +
+          "on some LAN setups raw.githubusercontent.com is reachable while cdn.jsdelivr.net is not, so jsdelivr URLs fail with 'download failed'.\n" +
+          "'Loaded but no sources registered' means the file downloaded and the script ran inside the sandbox, yet it never registered its sources — " +
+          "usually because the source needs a browser environment (window/document/localStorage) or runtime config pushed by the host.\n" +
+          "Read the (state=…,handlers=N,net=M) diagnostic suffix in the Test result: handlers=0 with net=0 means no lx listener was attached at all; " +
+          "handlers>0 means the script ran but registration is blocked on network or host capabilities; net>0 means the sandbox network bridge works.\n\n" +
           "### Failure visibility\nDownload errors, syntax errors, top-level throws, sources registering nothing, " +
           "403/timeouts are all reported with the original message; silent empty results never happen.",
       },
@@ -381,11 +395,29 @@ globalThis.__mfPlugin = {
 
     // ---------------- 音源加载(每源一个 jsenv 子环境) ----------------
     const cache = {};
+    let cacheFp = "";
+    // 音源列表(顺序+内容)变化即清空缓存:否则改完列表后的第一次调用会命中旧结果。
+    function syncCache() {
+      const items = parseList(cfg().sources);
+      let h = 5381;
+      const t = JSON.stringify(items.map(function (i) { return i.target + "=" + i.name; }));
+      for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+      const fp = String(items.length) + "_" + (h >>> 0).toString(36);
+      if (fp !== cacheFp) { cacheFp = fp; for (const k of Object.keys(cache)) delete cache[k]; }
+    }
 
     async function loadOne(item, idx) {
       const dir = cfgStr("sourceDir", "lx-sources");
       const timeoutMs = cfgNum("timeoutMs", 15000);
       const envName = "lx-source:" + idx;
+      // P1-1:环境名必须带内容指纹。宿主 jsenv.create 对同名环境是直接返回(不重跑
+      // initCode),只按下标命名时「改完音源列表再测」会拿到上一次的加载结果(假阳性)。
+      const lxFp = (code) => {
+        try { if (host.crypto && typeof host.crypto.md5 === "function") return String(host.crypto.md5(String(code))); } catch (_) { /* fallthrough */ }
+        let h = 5381; const t = String(code);
+        for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+        return String(t.length) + "_" + (h >>> 0).toString(36);
+      };
       let code = null;
       let origin = item.target;
 
@@ -408,22 +440,26 @@ globalThis.__mfPlugin = {
       }
 
       const head = parseLxHeader(code);
+      const envKey = envName + ":" + lxFp(code);
+      const ck = item.target + "|" + lxFp(code);
       const rec = {
-        idx: idx, envName: envName, name: item.name || head.name || ("src" + idx),
+        idx: idx, envName: envKey, ckey: ck, name: item.name || head.name || ("src" + idx),
         version: head.version, author: head.author, description: head.description,
         updateUrl: head.updateUrl, origin: origin, state: "loading", error: null,
         sources: [], srcInfo: {}, actions: [], handlers: [], netHits: 0,
       };
 
       try {
-        await host.jsenv.create(envName, SHIM + "\n" + code);
+        // 先销毁同名旧环境(P1-1 双保险),再按指纹名创建
+        try { await host.jsenv.destroy(envKey); } catch (_) {}
+        await host.jsenv.create(envKey, SHIM + "\n" + code);
       } catch (e) {
         const msg = String((e && e.message) || e);
         rec.state = "error";
         // 顶层抛错(如要求去官网下载新版)必须原样透出,不许注册成空音源
         rec.error = "音源脚本加载失败(执行阶段): " + origin + " -> " + msg;
         log(rec.error);
-        try { await host.jsenv.destroy(envName); } catch (_) {}
+        try { await host.jsenv.destroy(envKey); } catch (_) {}
         return rec;
       }
 
@@ -431,7 +467,7 @@ globalThis.__mfPlugin = {
         const probe = "(function(){try{return JSON.stringify({s:globalThis.__lxState.sources?Object.keys(globalThis.__lxState.sources):null," +
           "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
           "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
-        const r = await host.jsenv.execute(envName, probe);
+        const r = await host.jsenv.execute(envKey, probe);
         let info = null;
         try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
         if (info && info.s && info.s.length) {
@@ -446,25 +482,34 @@ globalThis.__mfPlugin = {
           log("音源注册成功: " + rec.name + " v" + rec.version + " 源=" + info.s.join(",") + " actions=" + (rec.actions.join(",") || "-"));
         } else {
           rec.state = "ready_no_sources";
-          rec.error = "音源已加载但未注册任何源(" + origin + ");常见原因:该源等待宿主下发运行期配置,或依赖浏览器环境";
-          log(rec.error);
+          // 诊断需要:即使没注册上源,也要把探针带回的 handlers / net 计数留下来
+          // (handlers>0 说明脚本确实执行并挂上了 lx.on;net>0 说明沙箱网络桥已通)。
+          if (info) {
+            rec.handlers = info.h || [];
+            rec.netHits = info.n || 0;
+          }
+          // 探针内部错误(__lxState 缺失等)最有排错价值,放最前面,免得被 80 字符摘要截断
+          const base = "音源已加载但未注册任何源(" + origin + ");常见原因:该源等待宿主下发运行期配置,或依赖浏览器环境";
+          rec.error = info && info.error ? "探针内部错误:" + String(info.error) + ";" + base : base;
+          log(rec.error + " handlers=" + ((rec.handlers && rec.handlers.length) || 0) + " net=" + (rec.netHits || 0));
         }
       } catch (e) {
         rec.state = "error";
         rec.error = "音源脚本加载失败(读取注册结果): " + origin + " -> " + String((e && e.message) || e);
         log(rec.error);
       }
-      cache[idx] = rec;
+      cache[item.target] = rec;
       return rec;
     }
 
     async function readySources() {
+      syncCache();
       const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
       const all = parseList(cfg().sources);
       const items = max > 0 ? all.slice(0, max) : all;
       const out = [];
       for (let i = 0; i < items.length; i++) {
-        const rec = cache[i] && cache[i].state !== "loading" ? cache[i] : await loadOne(items[i], i);
+        const rec = cache[items[i].target] || await loadOne(items[i], i);
         if (rec.state === "ready") out.push(rec);
       }
       const pref = cfgArr("sourcePreference");
@@ -604,9 +649,10 @@ globalThis.__mfPlugin = {
     // ---------------- 方法(与 go-music-dl 方法面对齐) ----------------
     return {
       async health() {
-        const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
-        const all = parseList(cfg().sources);
-        const items = max > 0 ? all.slice(0, max) : all;
+        syncCache();
+        // P3-6:与 test 口径一致,全量加载。按 maxSources 截断会让 status 误报 down
+        //(例如 maxSources=1 时只看第一个坏源就判 down,实际后面还有可用源)。
+        const items = parseList(cfg().sources);
         const list = [];
         for (let i = 0; i < items.length; i++) list.push(await loadOne(items[i], i));
         const readyCount = list.filter((r) => r.state === "ready").length;
@@ -621,7 +667,7 @@ globalThis.__mfPlugin = {
           message:
             list.length === 0
               ? "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名。"
-              : list.length + " 个音源,就绪 " + readyCount + " 个,失败 " + list.filter((r) => r.state === "error").length + " 个。",
+              : list.length + " 个音源,就绪 " + readyCount + " 个,失败 " + (list.length - readyCount) + " 个。",
         };
       },
 
@@ -633,6 +679,7 @@ globalThis.__mfPlugin = {
         try {
           const conf = config && typeof config === "object" ? config : {};
           const raw = Object.prototype.hasOwnProperty.call(conf, "sources") ? conf.sources : cfg().sources;
+          syncCache();
           const items = parseList(raw);
           if (!items.length) {
             return { success: false, message: "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名,再点测试。" };
@@ -642,6 +689,12 @@ globalThis.__mfPlugin = {
           const brief = (s, n) => {
             const t = String(s === undefined || s === null ? "" : s).replace(/\s+/g, " ").trim();
             return t.length > n ? t.slice(0, n - 1) + "…" : t;
+          };
+          // P2-3:错误摘要截断要保留首尾(错误类型在头、出错 URL/行号在尾),只看开头会丢根因
+          const briefErr = (s, n) => {
+            const t = String(s === undefined || s === null ? "" : s).replace(/\s+/g, " ").trim();
+            if (t.length <= n) return t;
+            return t.slice(0, Math.max(10, n - 21)) + "…" + t.slice(-20);
           };
 
           const okList = [];
@@ -663,28 +716,72 @@ globalThis.__mfPlugin = {
               const r = o.rec;
               const plat = r.sources && r.sources.length ? r.sources.join(",") : "未注册源";
               const acts = r.actions && r.actions.length ? r.actions.join(",") : "-";
-              return o.no + ". " + brief(r.name || r.origin, 24) + "[v" + (r.version || "?") + "](" + plat + ",actions=" + acts + ")";
+              const vr = String(r.version || "?");
+              return o.no + ". " + brief(r.name || r.origin, 24) + "[" + (/^[vV]/.test(vr) ? vr : "v" + vr) + "](" + plat + ",actions=" + acts + ")";
             })
             .join(" | ");
           const okBrief = okList
             .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); })
             .join(" | ");
+          // 不可用明细带诊断后缀:state / handlers / net 三者组合可立刻区分根因
+          // handlers=0 且 net=0 -> 脚本没执行或没挂 lx 监听;handlers>0 -> 脚本执行了,
+          // 注册卡在网络或宿主能力;net>0 -> 沙箱网络桥已通。
+          // 完整未截断的明细同时写日志(对话框里 80 字符摘要可能被截断)。
+          badList.forEach(function (b) {
+            const r = b.rec;
+            log(
+              "test 不可用 #" + b.no + " " + (r.name || r.origin || b.target) +
+                " state=" + r.state +
+                " handlers=" + ((r.handlers && r.handlers.length) || 0) +
+                " net=" + (r.netHits || 0) +
+                " err=" + String(r.error || "")
+            );
+          });
           const badText = badList
             .map(function (b) {
               const r = b.rec;
-              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + brief(r.error || "未注册任何源(原因未知)", 80);
+              const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ")";
+              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80) + " " + diag;
             })
             .join(" | ");
 
           const head = "共 " + items.length + " 个音源:可用 " + okList.length + " 个,不可用 " + badList.length + " 个。";
-          const badLine = badList.length ? "不可用 " + badList.length + " 个:" + badText : "";
-          const okLine = okList.length ? "可用 " + okList.length + " 个:" + okFull : "";
-          const okLineShort = okList.length ? "可用 " + okList.length + " 个(摘要):" + okBrief : "";
+          // P2-5:各最多列 15 条,超出的用「另有 N 个未显示」明确交代(纯字符截断会
+          // 让可用清单整段消失、不可用后半无声丢弃,与「可用和不可用都有哪些」不符)。
+          const MAX_ROWS = 15;
+          const badRows = badList.slice(0, MAX_ROWS);
+          const okRows = okList.slice(0, MAX_ROWS);
+          const badText2 = badRows
+            .map(function (b) {
+              const r = b.rec;
+              const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ")";
+              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80) + " " + diag;
+            })
+            .join(" | ");
+          const okFull2 = okRows
+            .map(function (o) {
+              const r = o.rec;
+              const plat = r.sources && r.sources.length ? r.sources.join(",") : "未注册源";
+              const acts = r.actions && r.actions.length ? r.actions.join(",") : "-";
+              const vr = String(r.version || "?");
+              return o.no + ". " + brief(r.name || r.origin, 24) + "[" + (/^[vV]/.test(vr) ? vr : "v" + vr) + "](" + plat + ",actions=" + acts + ")";
+            })
+            .join(" | ");
+          const okBrief2 = okRows
+            .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); })
+            .join(" | ");
+          const more = [];
+          if (badList.length > badRows.length) more.push("另有 " + (badList.length - badRows.length) + " 个不可用未显示");
+          if (okList.length > okRows.length) more.push("另有 " + (okList.length - okRows.length) + " 个可用未显示");
+          const moreLine = more.length ? "(明细条数上限 " + MAX_ROWS + " 条/类:" + more.join(";") + ",完整清单见服务端日志)" : "";
+          const badLine = badRows.length ? "不可用 " + badList.length + " 个:" + badText2 : "";
+          const okLine = okRows.length ? "可用 " + okList.length + " 个:" + okFull2 : "";
+          const okLineShort = okRows.length ? "可用 " + okList.length + " 个(摘要):" + okBrief2 : "";
 
           // 超长时先保住不可用明细(排错要紧),再压缩可用明细,最后整体截断兜底
-          let message = head + (badLine ? "\n" + badLine : "") + (okLine ? "\n" + okLine : "");
-          if (message.length > 1200 && okList.length) {
-            message = head + (badLine ? "\n" + badLine : "") + (okLineShort ? "\n" + okLineShort : "");
+          let message = head + (moreLine ? "\n" + moreLine : "") + (badLine ? "\n" + badLine : "") + (okLine ? "\n" + okLine : "");
+          if (message.length > 1200 && okRows.length) {
+            message = head + (moreLine ? "\n" + moreLine : "") + (badLine ? "\n" + badLine : "") + (okLineShort ? "\n" + okLineShort : "");
           }
           if (message.length > 1200) message = message.slice(0, 1199) + "…";
 

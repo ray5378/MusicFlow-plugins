@@ -1,7 +1,7 @@
 {
   "id": "lx-source",
   "name": "洛雪音源",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "source",
   "description": "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析@name/@version/@author 头并注册成可用音源,提供取链播放 / 搜索(音源支持时) / 歌词 / 封面。不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源,本插件整体不可用时核心会自动回退到其它已启用 source 插件。注意:本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等价于运行不是你写的程序,请只添加你信任的音源;默认不启用。",
   "capabilities": [
@@ -64,7 +64,7 @@
   ],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.3/lx-source.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.4/lx-source.tar.gz",
   "configSchema": [
     {
       "key": "sources",
@@ -158,7 +158,7 @@
       "help": "数值越小越靠前(1~100)"
     }
   ],
-  "documentation": "### 功能\n把洛雪音乐音源 .js 直接跑在 MusicFlow 沙箱里,解析出源(酷我/酷狗/网易/…)并提供\n取链播放、搜索(仅当音源声明 musicSearch/search)、歌词、封面。不需要洛雪客户端,也不需要额外服务端。\n\n### 能力边界(按真实音源协议)\n洛雪标准协议的 request actions 只有 musicSearch/musicUrl/lyric/pic,\n不含专辑/歌单搜索与每日推荐 —— 本插件对齐声明以便服务端无缝接入,但对音源不支持的能力会返回\n明确的空结果+原因,首页推荐/歌单由 go-music-dl 等插件提供。\n\n### 风险提示\n本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等同于运行不是你写的程序;\n插件不预置任何音源内容。请只添加你信任的音源,并建议在家庭局域网内自用。\n\n### 配置\n- 音源列表:`;` 分隔的 URL 或本地文件名(可带「显示名=...」);\n- 音质档、超时、最大音源数、搜索预取直链开关与上限;\n- 回退:音源报错 / 空结果自动回退到下一个可用音源(可分别开关)。\n\n### 失败可见\n下载失败、语法错、顶层抛错(如要求去官网下载新版)、未注册任何源、取链 403/超时,\n都会给出原文与脚本位置,并记录回退轨迹,绝不静默返回空结果。\n\n### 与 go-music-dl 的分工\ngo-music-dl 覆盖 12 个主流版权平台与首页推荐;本插件走洛雪音源生态\n(冷门/下架/长尾聚合 + 音源可自行热替换,不必改代码发版)。两者可并存,核心按\nsourcePreference 排序取源;本插件整体不可用时,核心会自动使用 go-music-dl 等其它已启用插件。",
+  "documentation": "### 功能\n把洛雪音乐音源 .js 直接跑在 MusicFlow 沙箱里,解析出源(酷我/酷狗/网易/…)并提供\n取链播放、搜索(仅当音源声明 musicSearch/search)、歌词、封面。不需要洛雪客户端,也不需要额外服务端。\n\n### 能力边界(按真实音源协议)\n洛雪标准协议的 request actions 只有 musicSearch/musicUrl/lyric/pic,\n不含专辑/歌单搜索与每日推荐 —— 本插件对齐声明以便服务端无缝接入,但对音源不支持的能力会返回\n明确的空结果+原因,首页推荐/歌单由 go-music-dl 等插件提供。\n\n### 风险提示\n本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等同于运行不是你写的程序;\n插件不预置任何音源内容。请只添加你信任的音源,并建议在家庭局域网内自用。\n\n### 配置\n- 音源列表:`;` 分隔的 URL 或本地文件名(可带「显示名=...」);\n- 音质档、超时、最大音源数、搜索预取直链开关与上限;\n- 回退:音源报错 / 空结果自动回退到下一个可用音源(可分别开关)。\n\n### 失败可见\n下载失败、语法错、顶层抛错(如要求去官网下载新版)、未注册任何源、取链 403/超时,\n都会给出原文与脚本位置,并记录回退轨迹,绝不静默返回空结果。\n\n### 音源 URL 与「已加载但未注册任何源」\n音源 URL 一律用 https://raw.githubusercontent.com/<owner>/<repo>/<分支>/<路径> 直链:实测部分内网环境可达 raw.githubusercontent.com 但不可达 cdn.jsdelivr.net,用 jsdelivr 会直接「音源下载失败」。\n「已加载但未注册任何源」= 文件下载成功且脚本已在沙箱里执行,但没有完成 sources 注册,常见于该音源依赖浏览器环境(window/document/localStorage),或需要宿主下发运行期配置才能初始化。\n排查看「测试」结果明细里的诊断后缀 (state=…,handlers=N,net=M):handlers=0 且 net=0 说明脚本没挂上任何 lx 监听;handlers>0 说明脚本执行了、注册卡在网络或宿主能力;net>0 说明沙箱网络桥已通。\n\n### 与 go-music-dl 的分工\ngo-music-dl 覆盖 12 个主流版权平台与首页推荐;本插件走洛雪音源生态\n(冷门/下架/长尾聚合 + 音源可自行热替换,不必改代码发版)。两者可并存,核心按\nsourcePreference 排序取源;本插件整体不可用时,核心会自动使用 go-music-dl 等其它已启用插件。",
   "i18n": {
     "en": {
       "name": "LX Music Sources",
@@ -205,7 +205,7 @@
           "help": "Lower value sorts first (1~100)."
         }
       },
-      "documentation": "### Features\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and exposes stream URL resolving, search (sources that declare musicSearch/search), lyrics and covers. No LX client and no extra service.\n\n### Capability boundary\nThe LX request protocol only defines musicSearch/musicUrl/lyric/pic actions; album/playlist search and daily recommendations are not part of it, so those methods return an explicit empty result with the reason.\n\n### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources / prefetch;\n- Fallback on error and on empty (auto-switch to the next working source).\n\n### Failure visibility\nDownload errors, syntax errors, top-level throws, sources registering nothing, 403/timeouts are all reported with the original message; silent empty results never happen."
+      "documentation": "### Features\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and exposes stream URL resolving, search (sources that declare musicSearch/search), lyrics and covers. No LX client and no extra service.\n\n### Capability boundary\nThe LX request protocol only defines musicSearch/musicUrl/lyric/pic actions; album/playlist search and daily recommendations are not part of it, so those methods return an explicit empty result with the reason.\n\n### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources / prefetch;\n- Fallback on error and on empty (auto-switch to the next working source).\n\n### Source URLs and 'loaded but no sources registered'\nAlways use raw.githubusercontent.com direct links (https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>): on some LAN setups raw.githubusercontent.com is reachable while cdn.jsdelivr.net is not, so jsdelivr URLs fail with 'download failed'.\n'Loaded but no sources registered' means the file downloaded and the script ran inside the sandbox, yet it never registered its sources — usually because the source needs a browser environment (window/document/localStorage) or runtime config pushed by the host.\nRead the (state=…,handlers=N,net=M) diagnostic suffix in the Test result: handlers=0 with net=0 means no lx listener was attached at all; handlers>0 means the script ran but registration is blocked on network or host capabilities; net>0 means the sandbox network bridge works.\n\n### Failure visibility\nDownload errors, syntax errors, top-level throws, sources registering nothing, 403/timeouts are all reported with the original message; silent empty results never happen."
     }
   }
 }

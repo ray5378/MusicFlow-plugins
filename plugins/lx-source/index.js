@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.2",
+    version: "1.0.3",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -65,11 +65,13 @@ globalThis.__mfPlugin = {
       playlistSongs: 45000,
       recommend: 60000,
       recommendPlaylist: 30000,
+      // test 要遍历配置里的全部音源并逐个加载(下载 + 沙箱执行),故给足 5 分钟预算。
+      test: 300000,
     },
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.2/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.3/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -607,14 +609,92 @@ globalThis.__mfPlugin = {
         const items = max > 0 ? all.slice(0, max) : all;
         const list = [];
         for (let i = 0; i < items.length; i++) list.push(await loadOne(items[i], i));
+        const readyCount = list.filter((r) => r.state === "ready").length;
+        // 核心 plugins/health.ts pingPlugin() 只认 {status: ok|degraded|down},缺字段会被判「未监控」:
+        // 无音源=degraded(配置缺失),全就绪=ok,部分就绪=degraded,全部失败=down。
+        // 原 ok/items/message 字段保持不变,向后兼容已有调用方。
+        const status = list.length === 0 ? "degraded" : readyCount === 0 ? "down" : readyCount === list.length ? "ok" : "degraded";
         return {
+          status: status,
           ok: list.length > 0 && list.every((r) => r.state === "ready"),
           items: list.map((r) => ({ name: r.name, version: r.version, author: r.author, origin: r.origin, state: r.state, error: r.error, sources: r.sources, actions: r.actions, handlers: r.handlers, netHits: r.netHits })),
           message:
             list.length === 0
               ? "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名。"
-              : list.length + " 个音源,就绪 " + list.filter((r) => r.state === "ready").length + " 个,失败 " + list.filter((r) => r.state === "error").length + " 个。",
+              : list.length + " 个音源,就绪 " + readyCount + " 个,失败 " + list.filter((r) => r.state === "error").length + " 个。",
         };
+      },
+
+      // 核心「测试连接」入口(POST /v1/online/:providerId/test):
+      // 遍历配置里的全部音源(不设数量上限,与 maxSources 无关),逐个 loadOne,
+      // 统计可用 / 不可用并把逐源明细拼成人类可读文本回传(前端对话框按文本展示)。
+      // 该路由不包 try/catch,故这里整体兜底:任何异常都转成 success:false + 原文摘要。
+      async test(config) {
+        try {
+          const conf = config && typeof config === "object" ? config : {};
+          const raw = Object.prototype.hasOwnProperty.call(conf, "sources") ? conf.sources : cfg().sources;
+          const items = parseList(raw);
+          if (!items.length) {
+            return { success: false, message: "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名,再点测试。" };
+          }
+
+          // 单行压缩:去掉换行与连续空白,超长截断(保留前 n-1 字符 + 省略号)
+          const brief = (s, n) => {
+            const t = String(s === undefined || s === null ? "" : s).replace(/\s+/g, " ").trim();
+            return t.length > n ? t.slice(0, n - 1) + "…" : t;
+          };
+
+          const okList = [];
+          const badList = [];
+          for (let i = 0; i < items.length; i++) {
+            let rec = null;
+            try {
+              rec = await loadOne(items[i], i);
+            } catch (e) {
+              rec = { name: items[i].name || "", version: "", origin: items[i].target, state: "error", error: "测试时抛出异常: " + String((e && e.message) || e), sources: [], actions: [] };
+            }
+            if (!rec) rec = { name: items[i].name || "", version: "", origin: items[i].target, state: "error", error: "音源测试无返回", sources: [], actions: [] };
+            if (rec.state === "ready") okList.push({ no: i + 1, rec: rec });
+            else badList.push({ no: i + 1, rec: rec, target: items[i].target });
+          }
+
+          const okFull = okList
+            .map(function (o) {
+              const r = o.rec;
+              const plat = r.sources && r.sources.length ? r.sources.join(",") : "未注册源";
+              const acts = r.actions && r.actions.length ? r.actions.join(",") : "-";
+              return o.no + ". " + brief(r.name || r.origin, 24) + "[v" + (r.version || "?") + "](" + plat + ",actions=" + acts + ")";
+            })
+            .join(" | ");
+          const okBrief = okList
+            .map(function (o) { return o.no + "." + brief(o.rec.name || o.rec.origin, 16); })
+            .join(" | ");
+          const badText = badList
+            .map(function (b) {
+              const r = b.rec;
+              return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + brief(r.error || "未注册任何源(原因未知)", 80);
+            })
+            .join(" | ");
+
+          const head = "共 " + items.length + " 个音源:可用 " + okList.length + " 个,不可用 " + badList.length + " 个。";
+          const badLine = badList.length ? "不可用 " + badList.length + " 个:" + badText : "";
+          const okLine = okList.length ? "可用 " + okList.length + " 个:" + okFull : "";
+          const okLineShort = okList.length ? "可用 " + okList.length + " 个(摘要):" + okBrief : "";
+
+          // 超长时先保住不可用明细(排错要紧),再压缩可用明细,最后整体截断兜底
+          let message = head + (badLine ? "\n" + badLine : "") + (okLine ? "\n" + okLine : "");
+          if (message.length > 1200 && okList.length) {
+            message = head + (badLine ? "\n" + badLine : "") + (okLineShort ? "\n" + okLineShort : "");
+          }
+          if (message.length > 1200) message = message.slice(0, 1199) + "…";
+
+          log("test 完成: " + head);
+          return { success: okList.length > 0, message: message };
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          log("test 异常: " + msg);
+          return { success: false, message: "音源测试异常: " + msg.slice(0, 200) };
+        }
       },
 
       async listSources() {

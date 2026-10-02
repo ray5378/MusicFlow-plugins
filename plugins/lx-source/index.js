@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.7",
+    version: "1.0.8",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -61,7 +61,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.7/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.8/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -95,6 +95,13 @@ globalThis.__mfPlugin = {
         ],
         default: ["320k"],
         help: "取播放链接时请求的音质档(洛雪标准档位);音源不支持该档时会明确报错并自动回退下一音源",
+      },
+      {
+        key: "concurrency",
+        label: "并发加载音源数",
+        type: "number",
+        default: 6,
+        help: "测试/自检时同时加载几个音源(1~8)。插件必须主线程执行(jsenv 子环境不能在 worker 里用),受默认 20 秒预算约束,音源多时需要并发才跑得完",
       },
       {
         key: "timeoutMs",
@@ -421,9 +428,11 @@ globalThis.__mfPlugin = {
     // ---------------- 音源加载(每源一个 jsenv 子环境) ----------------
     const cache = {};
 
-    async function loadOne(item, idx) {
+    async function loadOne(item, idx, timeoutOverride) {
       const dir = cfgStr("sourceDir", "lx-sources");
-      const timeoutMs = cfgNum("timeoutMs", 15000);
+      const timeoutMs = (typeof timeoutOverride === "number" && timeoutOverride > 0)
+        ? timeoutOverride
+        : cfgNum("timeoutMs", 15000);
       const ck = cacheKey(item, idx);
       // 先用「目标串」兜个名字(下载失败时也要有 envName 字段),拿到脚本后再换成完整指纹
       let envName = "lx-source:" + idx + ":" + fingerprint([item.target]);
@@ -539,6 +548,48 @@ globalThis.__mfPlugin = {
       return rec;
     }
 
+    // 分批并发加载:不声明 longRunning 是因为 longRunning 会把方法路由到 worker 线程,
+    // 而 worker 下 host.jsenv 一律 UNSUPPORTED。代价是只能跑主线程,受宿主默认 20s 预算约束,
+    // 串行加载 12 个音源必然超时,故按 concurrency 分批并发。
+    // 总预算:宿主主线程 invoke 预算 20s(sandbox.ts INVOKE_TIMEOUT_MS),留 5s 余量做汇总与返回。
+    const LOAD_BUDGET_MS = 15000;
+
+    async function loadAll(items) {
+      function mkErr(i, msg) {
+        const it = items[i] || {};
+        return { idx: i, name: it.name || "", version: "", origin: it.target || "",
+          state: "error", error: msg, sources: [], actions: [], handlers: [], netHits: 0 };
+      }
+      const conc = clamp(cfgNum("concurrency", 6), 1, 12, 6);
+      // 测试期单源超时压低:默认 15000 会让一批就吃掉整个预算
+      const perMs = Math.min(clamp(cfgNum("timeoutMs", 15000), 1000, 15000, 15000), 6000);
+      const t0 = Date.now();
+      const out = new Array(items.length);
+      let cut = false;
+      for (let base = 0; base < items.length; base += conc) {
+        const left = LOAD_BUDGET_MS - (Date.now() - t0);
+        if (left <= 0) { cut = true; break; }
+        const end = Math.min(base + conc, items.length);
+        const jobs = [];
+        for (let i = base; i < end; i++) {
+          jobs.push(
+            loadOne(items[i], i, perMs).then(
+              function (rec) { out[i] = rec || mkErr(i, "加载无返回"); },
+              function (e) { out[i] = mkErr(i, "加载抛出异常: " + String((e && e.message) || e)); }
+            )
+          );
+        }
+        await Promise.all(jobs);
+      }
+      for (let i = 0; i < out.length; i++) {
+        if (!out[i]) {
+          out[i] = cut
+            ? mkErr(i, "本次时间预算内未加载(已加载的会进缓存,再次点击测试可继续)")
+            : mkErr(i, "加载无返回");
+        }
+      }
+      return out;
+    }
     async function readySources() {
       const max = clamp(cfgNum("maxSources", 0), 0, 200, 0);
       const all = parseList(cfg().sources);
@@ -689,8 +740,7 @@ globalThis.__mfPlugin = {
         // 口径与 test() 对齐:全量加载,不受 maxSources 限制。只扫前 N 个会把后面
         // 其实可用的音源漏掉,导致 status 被误判成 down(这是 status 约定里的错报)。
         const items = parseList(cfg().sources);
-        const list = [];
-        for (let i = 0; i < items.length; i++) list.push(await loadOne(items[i], i));
+        const list = await loadAll(items);
         const readyCount = list.filter((r) => r.state === "ready").length;
         // 核心 plugins/health.ts pingPlugin() 只认 {status: ok|degraded|down},缺字段会被判「未监控」:
         // 无音源=degraded(配置缺失),全就绪=ok,部分就绪=degraded,全部失败=down。
@@ -742,14 +792,9 @@ globalThis.__mfPlugin = {
 
           const okList = [];
           const badList = [];
-          for (let i = 0; i < items.length; i++) {
-            let rec = null;
-            try {
-              rec = await loadOne(items[i], i);
-            } catch (e) {
-              rec = { name: items[i].name || "", version: "", origin: items[i].target, state: "error", error: "测试时抛出异常: " + String((e && e.message) || e), sources: [], actions: [] };
-            }
-            if (!rec) rec = { name: items[i].name || "", version: "", origin: items[i].target, state: "error", error: "音源测试无返回", sources: [], actions: [] };
+          const all = await loadAll(items);
+          for (let i = 0; i < all.length; i++) {
+            const rec = all[i];
             if (rec.state === "ready") okList.push({ no: i + 1, rec: rec });
             else badList.push({ no: i + 1, rec: rec, target: items[i].target });
           }

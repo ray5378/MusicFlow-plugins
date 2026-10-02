@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.5",
+    version: "1.0.6",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -71,7 +71,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.5/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.6/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -330,13 +330,25 @@ globalThis.__mfPlugin = {
       return out;
     }
 
+    // 内容护栏:宿主合法地返回了 200,但 body 是空/网页时会「静默注册不上」——
+    // 这类情况必须变成明确的 error,而不是含糊的「已加载但未注册任何源」。
+    function badContentReason(code) {
+      const t = String(code === undefined || code === null ? "" : code).replace(/^\s+/, "");
+      if (!t.length) return "内容为空(宿主返回了空 body)";
+      if (t.charAt(0) === "<") return "内容不是 JS 而是 HTML/网页(前 80 字符:" + t.slice(0, 80) + ")";
+      return null;
+    }
+
     async function httpText(url, timeoutMs) {
       const r = await host.http(url, { method: "GET", timeout: timeoutMs });
       if (!r.ok) {
         const detail = r.error ? " (" + (r.error.message || r.error) + ")" : "";
         throw new Error("HTTP " + (r.status == null ? "?" : r.status) + ": " + url + detail);
       }
-      return String(r.body);
+      const body = String(r.body);
+      const why = badContentReason(body);
+      if (why) throw new Error("HTTP 200 但 " + why + ",原始地址:" + url);
+      return body;
     }
 
     function safeParse(s) { try { return JSON.parse(s); } catch (e) { return null; } }
@@ -437,7 +449,12 @@ globalThis.__mfPlugin = {
         }
       } else {
         const p = /^\/|^[A-Za-z]:[\\/]/.test(item.target) ? item.target : dir + "/" + item.target;
-        try { code = String(await host.fs.readFile(p, "utf8")); }
+        try {
+          const raw = String(await host.fs.readFile(p, "utf8"));
+          const why = badContentReason(raw);
+          if (why) throw new Error(why);
+          code = raw;
+        }
         catch (e) {
           const err = "音源文件读取失败: " + p + " -> " + ((e && e.message) || e);
           log(err);
@@ -454,6 +471,7 @@ globalThis.__mfPlugin = {
         idx: idx, envName: envName, cacheKey: ck, name: item.name || head.name || ("src" + idx),
         version: head.version, author: head.author, description: head.description,
         updateUrl: head.updateUrl, origin: origin, state: "loading", error: null,
+        len: String(code).length,
         sources: [], srcInfo: {}, actions: [], handlers: [], netHits: 0,
       };
 
@@ -474,12 +492,25 @@ globalThis.__mfPlugin = {
       }
 
       try {
+        // ⚠️ 时序关键:宿主 jsenv.create 里 evalCode 之后【不推进 jobs】,而 execute 是
+        //「先 drainNet → evalCode → 再 pump」。探针是 sync 取快照,单轮读到的是「泵之前」
+        // 的状态 —— 异步注册(await 之后才 lx.on/lx.send)的音源会被误判成
+        // 「已加载但未注册任何源」。
+        // 补救:连续最多 4 轮 execute。每轮 execute 都会 drain 一次网络 + pump 一轮 jobs,
+        // 第 N 轮的探针读到的是第 N-1 轮泵之后的状态,足以覆盖「注册要等网络回来」的脚本。
+        // 注意:探针必须保持【同步】返回字符串 —— 返回 Promise 时宿主 execute 的
+        // resolvePromise+pumpJobs 取值链路实测不稳(QA harness 里直接取不到值)。
         const probe = "(function(){try{return JSON.stringify({s:globalThis.__lxState.sources?Object.keys(globalThis.__lxState.sources):null," +
           "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
           "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
-        const r = await host.jsenv.execute(envName, probe);
         let info = null;
-        try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
+        for (let round = 0; round < 4; round++) {
+          // 这一轮只有副作用:让宿主 drain 网络 + pump jobs,下一轮再取值
+          if (round > 0) { try { await host.jsenv.execute(envName, "void 0;"); } catch (_) {} }
+          const r = await host.jsenv.execute(envName, probe);
+          try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
+          if (info && info.s && info.s.length) break;
+        }
         if (info && info.s && info.s.length) {
           rec.state = "ready";
           rec.sources = info.s;
@@ -680,7 +711,7 @@ globalThis.__mfPlugin = {
         return {
           status: status,
           ok: list.length > 0 && list.every((r) => r.state === "ready"),
-          items: list.map((r) => ({ name: r.name, version: r.version, author: r.author, origin: r.origin, state: r.state, error: r.error, sources: r.sources, actions: r.actions, handlers: r.handlers, netHits: r.netHits })),
+          items: list.map((r) => ({ name: r.name, version: r.version, author: r.author, origin: r.origin, state: r.state, error: r.error, len: r.len, sources: r.sources, actions: r.actions, handlers: r.handlers, netHits: r.netHits })),
           message:
             list.length === 0
               ? "未配置任何音源:请在「音源列表」里添加至少一个 .js URL 或本地文件名。"
@@ -762,7 +793,7 @@ globalThis.__mfPlugin = {
           const badItems = badList
             .map(function (b) {
               const r = b.rec;
-              const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ")";
+              const diag = "(state=" + r.state + ",handlers=" + ((r.handlers && r.handlers.length) || 0) + ",net=" + (r.netHits || 0) + ",len=" + (r.len == null ? "?" : r.len) + ")";
               return b.no + ". " + brief(r.name || r.origin || b.target, 24) + " → " + briefErr(r.error || "未注册任何源(原因未知)", 80, 20) + " " + diag;
             });
 

@@ -1,7 +1,7 @@
 {
   "id": "lx-source",
   "name": "洛雪音源",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "source",
   "description": "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析@name/@version/@author 头并注册成可用音源,提供取链播放 / 搜索(音源支持时) / 歌词 / 封面。不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源,本插件整体不可用时核心会自动回退到其它已启用 source 插件。注意:本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等价于运行不是你写的程序,请只添加你信任的音源;默认不启用。",
   "capabilities": [
@@ -64,7 +64,7 @@
   ],
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.5/lx-source.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.6/lx-source.tar.gz",
   "configSchema": [
     {
       "key": "sources",

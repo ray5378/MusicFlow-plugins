@@ -31,7 +31,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.8",
+    version: "1.0.9",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
@@ -57,11 +57,16 @@ globalThis.__mfPlugin = {
     recommendPrefix: "lx://recommend/",
     defaultEnabled: false,
     minAppVersion: "1.7.39",
-    longRunning: {},
+    // test/health 要全量加载所有音源:12 个源串行远超默认 20s 墙钟预算。
+    // 但不能只写 longRunning —— 那会把方法路由到 worker 线程,而 worker 下
+    // host.jsenv 一律 UNSUPPORTED。longRunningInMain(后端 >= 4.0.76)让这两个方法
+    // 拿到长预算 + 软看门狗(await 网络不计时),同时强制留在主线程。
+    longRunning: { test: 300000, health: 300000 },
+    longRunningInMain: ["test", "health"],
     permissions: ["net", "fs", "storage", "log", "jsenv", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.8/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.9/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -102,6 +107,13 @@ globalThis.__mfPlugin = {
         type: "number",
         default: 6,
         help: "测试/自检时同时加载几个音源(1~8)。插件必须主线程执行(jsenv 子环境不能在 worker 里用),受默认 20 秒预算约束,音源多时需要并发才跑得完",
+      },
+      {
+        key: "cacheTtlHours",
+        label: "音源脚本缓存有效期(小时)",
+        type: "number",
+        default: 24,
+        help: "URL 音源的脚本缓存到插件目录后的有效期(小时,0=永不过期)。缓存命中时不再联网下载,出网不稳定的环境靠它把音源固化下来",
       },
       {
         key: "timeoutMs",
@@ -428,6 +440,43 @@ globalThis.__mfPlugin = {
     // ---------------- 音源加载(每源一个 jsenv 子环境) ----------------
     const cache = {};
 
+    // ---- URL 音源的磁盘缓存:出网不稳时,下载成功的脚本固化下来,之后直接读盘 ----
+    function cacheFileFor(target, dir) {
+      const fp = fingerprint([target]).slice(0, 12);
+      let base = "";
+      try {
+        const u = String(target).split("?")[0];
+        base = decodeURIComponent(u.substring(u.lastIndexOf("/") + 1));
+      } catch (_) { base = ""; }
+      base = String(base).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 60);
+      if (!base || !/\.js$/i.test(base)) base = (base || "src") + ".js";
+      return String(dir) + "/" + fp + "-" + base;
+    }
+
+    async function readDiskCache(relPath) {
+      const ttlH = clamp(cfgNum("cacheTtlHours", 24), 0, 720, 24);
+      let st = null;
+      try { st = await host.fs.stat(relPath); } catch (_) { return null; }
+      if (!st || !st.size) return null;
+      if (ttlH > 0) {
+        const age = Date.now() - Date.parse(String(st.mtime || ""));
+        if (Number.isFinite(age) && age > ttlH * 3600 * 1000) return null;
+      }
+      try {
+        const raw = String(await host.fs.readFile(relPath, "utf8"));
+        if (badContentReason(raw)) return null;
+        return raw;
+      } catch (_) { return null; }
+    }
+
+    async function writeDiskCache(relPath, code) {
+      try {
+        const i = relPath.lastIndexOf("/");
+        if (i > 0) { try { await host.fs.mkdir(relPath.slice(0, i), { recursive: true }); } catch (_) {} }
+        await host.fs.writeFile(relPath, code, "utf8");
+      } catch (_) { /* 缓存失败不影响主流程 */ }
+    }
+
     async function loadOne(item, idx, timeoutOverride) {
       const dir = cfgStr("sourceDir", "lx-sources");
       const timeoutMs = (typeof timeoutOverride === "number" && timeoutOverride > 0)
@@ -440,11 +489,18 @@ globalThis.__mfPlugin = {
       let origin = item.target;
 
       if (item.isUrl) {
-        try { code = await httpText(item.target, timeoutMs); }
-        catch (e) {
-          const err = "音源下载失败: " + item.target + " -> " + ((e && e.message) || e);
-          log(err);
-          return { idx: idx, envName: envName, name: item.name || "", state: "error", error: err, origin: origin };
+        const cf = cacheFileFor(item.target, dir);
+        code = await readDiskCache(cf);
+        if (code) {
+          origin = item.target + " [本地缓存]";
+        } else {
+          try { code = await httpText(item.target, timeoutMs); }
+          catch (e) {
+            const err = "音源下载失败: " + item.target + " -> " + ((e && e.message) || e);
+            log(err);
+            return { idx: idx, envName: envName, name: item.name || "", state: "error", error: err, origin: origin };
+          }
+          await writeDiskCache(cf, code);
         }
       } else {
         const p = /^\/|^[A-Za-z]:[\\/]/.test(item.target) ? item.target : dir + "/" + item.target;
@@ -503,9 +559,14 @@ globalThis.__mfPlugin = {
           "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
           "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
         let info = null;
+        const pT0 = Date.now();
         for (let round = 0; round < 4; round++) {
           // 这一轮只有副作用:让宿主 drain 网络 + pump jobs,下一轮再取值
-          if (round > 0) { try { await host.jsenv.execute(envName, "void 0;"); } catch (_) {} }
+          // 单源已耗过 6s 就不再多轮:宿主 invoke 预算只有 20s,不能让一个源吃光
+          if (round > 0) {
+            if (Date.now() - pT0 > 6000) break;
+            try { await host.jsenv.execute(envName, "void 0;"); } catch (_) {}
+          }
           const r = await host.jsenv.execute(envName, probe);
           try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
           if (info && info.s && info.s.length) break;

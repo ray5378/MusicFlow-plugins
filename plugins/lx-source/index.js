@@ -1,5 +1,5 @@
 // ============================================================================
-//  MusicFlow 外置插件：洛雪(lx)音源内联运行时(纯取链)  v1.1.1(manifest 同步)
+//  MusicFlow 外置插件：洛雪(lx)音源内联运行时(纯取链)  v1.1.4(manifest 同步)
 // ----------------------------------------------------------------------------
 //  能力：把你自己的洛雪音乐(LX Music)音源 .js 直接放进 MusicFlow 沙箱执行，
 //        按歌曲平台 ID 直查洛雪 musicUrl 换播放直链(多音源自动轮切)。
@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.1.3",
+    version: "1.1.4",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -44,11 +44,10 @@ globalThis.__mfPlugin = {
     capabilities: [
       "stream",
     ],
-    platforms: ["kw", "kg", "tx", "wy", "mg", "bilibili", "other"],
-    platformLabels: { kw: "酷我", kg: "酷狗", tx: "企鹅音乐", wy: "网易云", mg: "咪咕", bilibili: "哔哩哔哩", other: "其它" },
-    sourcePreference: ["wy", "kg", "kw", "tx"],
+    platforms: ["kw", "kg", "tx", "wy", "mg"],
+    platformLabels: { kw: "酷我", kg: "酷狗", tx: "企鹅音乐", wy: "网易云", mg: "咪咕" },
     defaultEnabled: false,
-    minAppVersion: "1.7.39",
+    minAppVersion: "4.0.84",
     // test/health/resolveStream 都要全量加载所有音源:12 个源串行远超默认 20s 墙钟预算。
     // 但不能只写 longRunning —— 那会把方法路由到 worker 线程,而 worker 下
     // host.jsenv 一律 UNSUPPORTED。longRunningInMain(后端 >= 4.0.76)让这两个方法
@@ -58,10 +57,10 @@ globalThis.__mfPlugin = {
     // 「沙箱限制:单次调用超时(配额 20000ms)」),故与 test 同级给 300s。
     longRunning: { test: 300000, health: 300000, resolveStream: 300000 },
     longRunningInMain: ["test", "health", "resolveStream"],
-    permissions: ["net", "fs", "storage", "log", "jsenv", "crypto"],
+    permissions: ["net", "fs", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.3/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.4/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -97,11 +96,18 @@ globalThis.__mfPlugin = {
         help: "取播放链接时请求的音质档(洛雪标准档位);音源不支持该档时会明确报错并自动回退下一音源",
       },
       {
+        key: "sourcePreference",
+        label: "音源优先顺序",
+        type: "text-list",
+        default: ["wy", "kg", "kw", "tx"],
+        help: "一行一个洛雪平台 key(wy/kg/kw/tx/mg)，越靠前越先尝试；未列出的平台排在最后。留空=按音源列表顺序。",
+      },
+      {
         key: "concurrency",
         label: "并发加载音源数",
         type: "number",
         default: 6,
-        help: "测试/自检时同时加载几个音源(1~8)。插件必须主线程执行(jsenv 子环境不能在 worker 里用),受默认 20 秒预算约束,音源多时需要并发才跑得完",
+        help: "取链/自检时并发加载几个音源(1~8)。插件必须主线程执行(jsenv 子环境不能在 worker 里用),受默认 20 秒预算约束,音源多时需要并发才跑得完",
       },
       {
         key: "cacheTtlHours",
@@ -136,14 +142,7 @@ globalThis.__mfPlugin = {
         label: "音源空结果自动回退",
         type: "switch",
         default: true,
-        help: "某音源返回空结果时自动改用下一个可用音源(对冷门曲目很有用)",
-      },
-      {
-        key: "sortOrder",
-        label: "首页显示顺序",
-        type: "number",
-        default: 40,
-        help: "数值越小越靠前(1~100)",
+        help: "某音源返回空结果时自动改用下一个可用音源(有些音源对部分曲目没有直链)",
       },
     ],
     documentation:
@@ -156,7 +155,7 @@ globalThis.__mfPlugin = {
       "因此本插件 capabilities 只声明 stream,搜索/歌单/推荐/歌词/封面一律由 go-music-dl 等插件提供。\n\n" +
       "### 风险提示\n本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等同于运行不是你写的程序;\n" +
       "插件不预置任何音源内容。请只添加你信任的音源,并建议在家庭局域网内自用。\n\n" +
-      "### 配置\n- 音源列表:`;` 分隔的 URL 或本地文件名(可带「显示名=...」);\n" +
+      "### 配置\n- 音源列表:一行一个(点 + 添加行、✕ 删除行),每行是 URL 或本地文件名(可带「显示名=...」);旧版分号分隔格式仍兼容;\n" +
       "- 音质档、超时、最大音源数;\n" +
       "- 回退:音源报错 / 无链自动回退到下一个可用音源(可分别开关)。\n\n" +
       "### 失败可见\n下载失败、语法错、顶层抛错(如要求去官网下载新版)、未注册任何源、取链 403/超时,\n" +
@@ -182,11 +181,13 @@ globalThis.__mfPlugin = {
           sources: { label: "Sources (one per row)", help: "LX source .js URLs or local file names, one per row; use 'Name=...' to rename." },
           sourceDir: { label: "Source directory", help: "Root dir for local .js sources (default lx-sources); absolute paths ignore this." },
           quality: { label: "Quality", help: "Preferred quality tier when fetching a playable URL." },
+          sourcePreference: { label: "Source preference order", help: "One LX platform key per row (wy/kg/kw/tx/mg); earlier rows are tried first. Empty = source list order. Unlisted platforms are tried last." },
           timeoutMs: { label: "Network timeout (ms)", help: "Timeout for a single fetch; on failure the next source is tried." },
           maxSources: { label: "Max sources", help: "0 = load every row; >0 caps how many scripts load at once." },
           fallbackOnError: { label: "Auto fallback on error", help: "Try the next source when one errors (403 / anti-bot / script exception)." },
-          fallbackOnEmpty: { label: "Auto fallback on empty", help: "Try the next source when one returns no URL." },
-          sortOrder: { label: "Home sort order", help: "Lower value sorts first (1~100)." },
+          fallbackOnEmpty: { label: "Auto fallback on empty", help: "Try the next source when one returns no URL (some sources have no direct link for certain tracks)." },
+          concurrency: { label: "Concurrent source loads", help: "How many sources load in parallel during resolve/self-check (1-8). The plugin must run on the main thread (jsenv is unavailable in worker threads) and is bound by the default 20s budget." },
+          cacheTtlHours: { label: "Source script cache TTL (hours)", help: "How long a downloaded source script stays cached on disk (0 = never expire). Cache hits skip the network entirely." },
         },
         documentation:
           "### Features (pure stream resolving)\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and resolves playable URLs by the song's " +
@@ -197,7 +198,7 @@ globalThis.__mfPlugin = {
           "There is no musicSearch action — search was never part of the LX ecosystem; measured search self-answer rate is 0/12. " +
           "Hence this plugin declares only the stream capability; search/playlists/recommend/lyrics/covers belong to go-music-dl and friends.\n\n" +
           "### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n" +
-          "### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources;\n" +
+          "### Config\n- Sources: one per row (use + to add, ✕ to remove), each a URL or local file name (support 'Name=...' rename); the legacy semicolon-separated format is still accepted;\n- Quality / timeout / max sources;\n" +
           "- Fallback on error and on empty (auto-switch to the next working source).\n\n" +
           "### Source URLs and 'loaded but no sources registered'\n" +
           "Always use raw.githubusercontent.com direct links (https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>): " +
@@ -602,7 +603,10 @@ globalThis.__mfPlugin = {
         if (rec.state === "ready") out.push(rec);
       }
       const pref = cfgArr("sourcePreference");
-      if (pref.length) out.sort((a, b) => pref.indexOf(a.sources[0]) - pref.indexOf(b.sources[0]));
+      if (pref.length) {
+        const rank = (x) => { const i = pref.indexOf(x); return i < 0 ? Number.MAX_SAFE_INTEGER : i; };
+        out.sort((a, b) => rank(a.sources[0]) - rank(b.sources[0]));
+      }
       return out;
     }
 

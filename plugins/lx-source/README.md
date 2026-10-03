@@ -1,4 +1,4 @@
-# lx-source (v1.1.1, pure stream resolver)
+# lx-source (v1.1.4, pure stream resolver)
 
 Inlines LX Music source scripts into the MusicFlow QuickJS sandbox and
 resolves playable URLs **by the song's platform ID** via the LX musicUrl
@@ -28,6 +28,25 @@ friends.
   are currently dead and simply fail over.
 - musicInfo carries the LX platform key (`source`: wy/kg/kw/tx/mg) as
   required by aggregate sources (tongyi/xinghai read it to route upstream).
+
+## Config
+
+- `sources` - one row per LX source (URL or local file name); the legacy
+  semicolon-separated format is still accepted.
+- `sourceDir` - root dir for local `.js` sources (default `lx-sources`).
+- `quality` - preferred quality tier when fetching a playable URL.
+- `sourcePreference` - one LX platform key per row (`wy/kg/kw/tx/mg`);
+  earlier rows are tried first. Unlisted platforms are tried last. Sets the
+  source rotation order once the sources are loaded. Empty = source list
+  order.
+- `concurrency` - how many sources load in parallel during
+  resolve/self-check (1-8).
+- `cacheTtlHours` - how long a downloaded source script stays cached
+  (0 = never expire).
+- `timeoutMs` - per-fetch network timeout in ms.
+- `maxSources` - 0 = load every row; >0 caps how many scripts load.
+- `fallbackOnError` / `fallbackOnEmpty` - auto-switch to the next working
+  source on error / empty result.
 
 ## Warning
 

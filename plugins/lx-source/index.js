@@ -1,29 +1,29 @@
 // ============================================================================
-//  MusicFlow 外置插件：洛雪(lx)音源内联运行时  v1.0.1(manifest v1.1.0)
+//  MusicFlow 外置插件：洛雪(lx)音源内联运行时(纯取链)  v1.1.1(manifest 同步)
 // ----------------------------------------------------------------------------
 //  能力：把你自己的洛雪音乐(LX Music)音源 .js 直接放进 MusicFlow 沙箱执行，
-//        自动解析 @name/@version/@author 头并注册成可用音源。
+//        按歌曲平台 ID 直查洛雪 musicUrl 换播放直链(多音源自动轮切)。
 //
 //  不需要洛雪客户端，不需要洛雪服务端，也不需要 baseUrl 指向任何外部服务。
 //
 //  洛雪协议(230 上 40 个真实音源实证)：
 //    - 音源只依赖宿主注入的 globalThis.lx(require/module.exports 实测 0 命中)；
 //    - request 事件载荷信封 {action, source, info}：
-//        musicSearch/search : info={keyword,page,pagesize} -> {isEnd,list,total}
 //        musicUrl           : info={type:音质, musicInfo}   -> URL 字符串
-//        lyric              : info={musicInfo}              -> {lyric}
-//        pic                : info={musicInfo}              -> URL 字符串
-//    - 实测 actions 分布：musicUrl 23/40、musicSearch+musicUrl+lyric 2/40、
-//      musicUrl+search 2/40 —— 搜索不是普遍能力，插件按 sources[].actions
-//      声明探测，未声明的能力直接明确告知，不静默。
+//        lyric              : info={musicInfo}              -> {lyric}(本插件不用)
+//        pic                : info={musicInfo}              -> URL(本插件不用)
+//    - **官方协议没有 musicSearch**(桌面/移动端文档均明写非 local 源 actions
+//      固定 ['musicUrl'])；搜索从来不是洛雪生态的能力，实测 12 音源搜索自答
+//      0/12 —— v1.1.1 起本插件收窄为纯取链，找歌由 go-music-dl 等插件负责。
+//    - musicInfo 必须带 source 平台键(wy/kg/kw/tx/mg)，聚合型源读它分流。
 //
 //  失效自动切换(两层)：
-//    层1(插件内)：withFallback 对已配置的多音源按序轮切，报错/空结果都切下一个，
+//    层1(插件内)：withFallback 对已配置的多音源按序轮切，报错/无链都切下一个，
 //                 回退轨迹写入返回 message；
-//    层2(插件外):本插件整体不可用(全部音源均无结果/报错)时,核心 core-search-fallback
-//                 (「搜索兜底」)自动改用其它已启用 source 插件再搜一次,并回传
-//                 fallbackFrom(结果来自哪个插件)与 trace(回退轨迹);
-//                 播放链那一路仍是 streamFallback(resolveStreamProvider),两条互不干扰。
+//    层2(插件外):核心取链兜底(findFallbackStream)在本尊重搜+全平台失败后,
+//                 对「纯 stream 插件」(capabilities 含 stream 不含 search,即本插件)
+//                 逐个调 resolveStream(config, song) —— 按歌 sourceData 里的
+//                 平台原生 ID 直查;probe 通过才换链。
 //
 //  失败可见(不静默)：下载失败/语法错/顶层抛错/未注册/取链 403/超时，
 //  都在返回值 message 与日志里给出原文与位置。
@@ -33,42 +33,29 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.1.0",
+    version: "1.1.1",
     type: "source",
     description:
-      "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
-      "@name/@version/@author 头并注册成可用音源,提供取链播放 / 搜索(音源支持时) / 歌词 / 封面。" +
-      "不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源;" +
-      "本插件整体不可用(全部音源均无结果/报错)时,核心「搜索兜底」会自动改用其它已启用的源插件" +
-      "再试一次(结果来自哪个插件与回退轨迹会回传前端)。" +
+      "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
+      "按歌曲平台 ID 直查洛雪 musicUrl 换播放直链(多音源自动轮切),供核心取链兜底跨插件调用。" +
+      "不提供搜索/歌单/推荐/歌词/封面 —— 洛雪官方协议(request actions 只有 musicUrl/lyric/pic)根本不支持搜索," +
+      "实测音源搜索自答 0/12,这些能力全部移除;找歌由 go-music-dl 等插件负责。" +
       "注意:本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等价于运行不是你写的程序,请只添加你信任的音源;默认不启用。",
     capabilities: [
-      "search",
-      "songSearch",
-      "albumSearch",
-      "playlistSearch",
-      "playlistSongs",
-      "recommend",
       "stream",
-      "webRotation",
-      "lyricProvider",
-      "coverProvider",
     ],
     platforms: ["kw", "kg", "tx", "wy", "mg", "bilibili", "other"],
     platformLabels: { kw: "酷我", kg: "酷狗", tx: "企鹅音乐", wy: "网易云", mg: "咪咕", bilibili: "哔哩哔哩", other: "其它" },
     sourcePreference: ["wy", "kg", "kw", "tx"],
-    recommendPrefix: "lx://recommend/",
     defaultEnabled: false,
     minAppVersion: "1.7.39",
     // test/health 要全量加载所有音源:12 个源串行远超默认 20s 墙钟预算。
     // 但不能只写 longRunning —— 那会把方法路由到 worker 线程,而 worker 下
     // host.jsenv 一律 UNSUPPORTED。longRunningInMain(后端 >= 4.0.76)让这两个方法
     // 拿到长预算 + 软看门狗(await 网络不计时),同时强制留在主线程。
-    // search:10 源回退的搜索远超默认 20s 墙钟,且逐源等待网络需要软看门狗
-    // (await 不计时);longRunningInMain 让它们留在主线程(worker 下 jsenv 不可用)。
-    longRunning: { test: 300000, health: 300000, search: 60000, searchSongs: 60000 },
-    longRunningInMain: ["test", "health", "search", "searchSongs"],
-    permissions: ["net", "fs", "storage", "log", "jsenv", "crypto", "songs:read", "songs:write"],
+    longRunning: { test: 300000, health: 300000 },
+    longRunningInMain: ["test", "health"],
+    permissions: ["net", "fs", "storage", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.0/lx-source.tar.gz",
@@ -135,20 +122,6 @@ globalThis.__mfPlugin = {
         help: "0=不限制,音源列表里所有行都会加载;>0 时只加载前 N 个(防止脚本过多吃满沙箱内存)",
       },
       {
-        key: "prefetchStreams",
-        label: "搜索时预取播放链接",
-        type: "switch",
-        default: true,
-        help: "搜索/歌单返回后立即为前若干首调音源 musicUrl 预取直链并缓存;关掉可减少对音源 API 的请求频率",
-      },
-      {
-        key: "prefetchMax",
-        label: "单次预取歌曲数上限",
-        type: "number",
-        default: 10,
-        help: "每次搜索/歌单最多预取多少首的直链(1~50)",
-      },
-      {
         key: "fallbackOnError",
         label: "音源报错自动回退",
         type: "switch",
@@ -171,16 +144,18 @@ globalThis.__mfPlugin = {
       },
     ],
     documentation:
-      "### 功能\n把洛雪音乐音源 .js 直接跑在 MusicFlow 沙箱里,解析出源(酷我/酷狗/网易/…)并提供\n" +
-      "取链播放、搜索(仅当音源声明 musicSearch/search)、歌词、封面。不需要洛雪客户端,也不需要额外服务端。\n\n" +
-      "### 能力边界(按真实音源协议)\n洛雪标准协议的 request actions 只有 musicSearch/musicUrl/lyric/pic,\n" +
-      "不含专辑/歌单搜索与每日推荐 —— 本插件对齐声明以便服务端无缝接入,但对音源不支持的能力会返回\n" +
-      "明确的空结果+原因,首页推荐/歌单由 go-music-dl 等插件提供。\n\n" +
+      "### 功能(纯取链)\n把洛雪音乐音源 .js 直接跑在 MusicFlow 沙箱里,按歌曲的平台 ID 直查洛雪 musicUrl 换播放直链,\n" +
+      "多音源自动轮切(报错/无链自动切下一个)。供核心取链兜底跨插件调用:go-music-dl 等本尊插件\n" +
+      "重搜+全平台都取不到可播直链时,核心对本插件调 resolveStream —— 按歌曲 sourceData 里的\n" +
+      "平台原生 ID(网易云 ID/酷我 ID…)直接换链,不需要搜索。实测可用:kuwo(全豆要)、netease(统一/星海,支持 flac 无损)。\n\n" +
+      "### 能力边界(为什么不提供搜索)\n洛雪官方协议的 request actions 只有 musicUrl(在线源)/musicUrl+lyric+pic(本地源),\n" +
+      "根本没有 musicSearch —— 搜索从来不是洛雪生态的能力,实测 12 音源搜索自答 0/12。\n" +
+      "因此本插件 capabilities 只声明 stream,搜索/歌单/推荐/歌词/封面一律由 go-music-dl 等插件提供。\n\n" +
       "### 风险提示\n本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等同于运行不是你写的程序;\n" +
       "插件不预置任何音源内容。请只添加你信任的音源,并建议在家庭局域网内自用。\n\n" +
       "### 配置\n- 音源列表:`;` 分隔的 URL 或本地文件名(可带「显示名=...」);\n" +
-      "- 音质档、超时、最大音源数、搜索预取直链开关与上限;\n" +
-      "- 回退:音源报错 / 空结果自动回退到下一个可用音源(可分别开关)。\n\n" +
+      "- 音质档、超时、最大音源数;\n" +
+      "- 回退:音源报错 / 无链自动回退到下一个可用音源(可分别开关)。\n\n" +
       "### 失败可见\n下载失败、语法错、顶层抛错(如要求去官网下载新版)、未注册任何源、取链 403/超时,\n" +
       "都会给出原文与脚本位置,并记录回退轨迹,绝不静默返回空结果。\n\n" +
       "### 音源 URL 与「已加载但未注册任何源」\n" +
@@ -189,18 +164,15 @@ globalThis.__mfPlugin = {
       "「已加载但未注册任何源」= 文件下载成功且脚本已在沙箱里执行,但没有完成 sources 注册," +
       "常见于该音源依赖浏览器环境(window/document/localStorage),或需要宿主下发运行期配置才能初始化。\n" +
       "排查看「测试」结果明细里的诊断后缀 (state=…,handlers=N,net=M):handlers=0 且 net=0 说明脚本没挂上任何 lx 监听;" +
-      "handlers>0 说明脚本执行了、注册卡在网络或宿主能力;net>0 说明沙箱网络桥已通。\n\n" +
-      "### 与 go-music-dl 的分工\ngo-music-dl 覆盖 12 个主流版权平台与首页推荐;本插件走洛雪音源生态\n" +
-      "(冷门/下架/长尾聚合 + 音源可自行热替换,不必改代码发版)。两者可并存,核心按\n" +
-      "sourcePreference 排序取源;本插件整体不可用时,核心会自动使用 go-music-dl 等其它已启用插件。",
+      "handlers>0 说明脚本执行了、注册卡在网络或宿主能力;net>0 说明沙箱网络桥已通。",
     i18n: {
       en: {
         name: "LX Music Sources",
         description:
-          "Inlines LX Music source scripts into the MusicFlow sandbox: parses the @name/@version header and registers " +
-          "the sources with stream URL resolving, search (when the source declares it), lyrics and covers. No LX server, " +
-          "no external service address. If a source fails, the next configured source is used automatically; if the whole " +
-          "plugin is unusable, the core falls back to other enabled source plugins. " +
+          "Inlines LX Music source scripts into the MusicFlow sandbox as a pure stream-URL resolver: resolves playable " +
+          "URLs by the song's platform ID via the LX musicUrl action with automatic multi-source rotation, consumed by " +
+          "the core stream-fallback across plugins. No search/playlist/recommend/lyrics/covers — the LX official protocol " +
+          "has no search action at all and measured search coverage is 0/12; finding songs is go-music-dl's job. " +
           "Warning: this plugin executes third-party source scripts inside your MusicFlow server process; " +
           "add only sources you trust and keep it LAN-only. Disabled by default.",
         fields: {
@@ -209,19 +181,20 @@ globalThis.__mfPlugin = {
           quality: { label: "Quality", help: "Preferred quality tier when fetching a playable URL." },
           timeoutMs: { label: "Network timeout (ms)", help: "Timeout for a single fetch; on failure the next source is tried." },
           maxSources: { label: "Max sources", help: "0 = load every row; >0 caps how many scripts load at once." },
-          prefetchStreams: { label: "Prefetch stream URLs on search", help: "Resolve playable URLs right after a search and cache them." },
-          prefetchMax: { label: "Prefetch cap per search", help: "Max songs to prefetch per search/playlist (1~50)." },
           fallbackOnError: { label: "Auto fallback on error", help: "Try the next source when one errors (403 / anti-bot / script exception)." },
-          fallbackOnEmpty: { label: "Auto fallback on empty", help: "Try the next source when one returns no results." },
+          fallbackOnEmpty: { label: "Auto fallback on empty", help: "Try the next source when one returns no URL." },
           sortOrder: { label: "Home sort order", help: "Lower value sorts first (1~100)." },
         },
         documentation:
-          "### Features\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and exposes stream URL " +
-          "resolving, search (sources that declare musicSearch/search), lyrics and covers. No LX client and no extra service.\n\n" +
-          "### Capability boundary\nThe LX request protocol only defines musicSearch/musicUrl/lyric/pic actions; album/playlist " +
-          "search and daily recommendations are not part of it, so those methods return an explicit empty result with the reason.\n\n" +
+          "### Features (pure stream resolving)\nRuns LX Music source scripts inside the MusicFlow QuickJS sandbox and resolves playable URLs by the song's " +
+          "platform ID via the LX musicUrl action, with automatic multi-source rotation. Consumed by the core stream-fallback: " +
+          "when the owning provider (go-music-dl etc.) fails on every platform, the core calls resolveStream with the song's " +
+          "sourceData (native platform IDs) — no search involved. Verified live: kuwo (qdy) and netease (tongyi/xinghai, flac capable).\n\n" +
+          "### Capability boundary (why no search)\nThe LX official protocol defines only musicUrl (online sources) / musicUrl+lyric+pic (local). " +
+          "There is no musicSearch action — search was never part of the LX ecosystem; measured search self-answer rate is 0/12. " +
+          "Hence this plugin declares only the stream capability; search/playlists/recommend/lyrics/covers belong to go-music-dl and friends.\n\n" +
           "### Warning\nExecutes third-party scripts in your MusicFlow process; add only sources you trust.\n\n" +
-          "### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources / prefetch;\n" +
+          "### Config\n- Sources: semicolon-separated URLs or file names;\n- Quality / timeout / max sources;\n" +
           "- Fallback on error and on empty (auto-switch to the next working source).\n\n" +
           "### Source URLs and 'loaded but no sources registered'\n" +
           "Always use raw.githubusercontent.com direct links (https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>): " +
@@ -392,47 +365,6 @@ globalThis.__mfPlugin = {
     function cacheKey(item, idx) { return idx + ":" + fingerprint([item.target]); }
 
     // 洛雪 songInfo -> OnlineSongResult(保留原始 musicInfo 供取链/歌词复用)
-    function normalizeSongItem(it, rec) {
-      if (!it || typeof it !== "object") return null;
-      const id = String(it.songmid || it.hash || it.id || it.rid || it.copyrightId || it.songId || "").trim();
-      const name = String(it.name || it.songName || it.title || "").trim();
-      if (!id || !name) return null;
-      let artist = it.singer !== undefined ? it.singer : (it.artist !== undefined ? it.artist : (it.artists || it.artistName || ""));
-      if (Array.isArray(artist)) artist = artist.map((a) => (typeof a === "string" ? a : (a && (a.name || a.singer)) || "")).filter(Boolean).join("、");
-      let interval = it.interval !== undefined ? it.interval : it.duration;
-      let duration = 0;
-      if (typeof interval === "number" && Number.isFinite(interval)) duration = Math.round(interval);
-      else if (typeof interval === "string" && /^\d+:\d{1,2}(:\d{1,2})?$/.test(interval.trim())) {
-        const p = interval.split(":").map(Number); duration = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1];
-      }
-      const source = String(it.source || (rec.sources && rec.sources[0]) || "other");
-      return {
-        id: id, source: source, name: name,
-        artist: String(artist || "").trim(),
-        album: String(it.albumName || it.album || it.albumTitle || "").trim(),
-        duration: duration,
-        cover: String(it.img || it.pic || it.cover || it.albumpic || "").trim(),
-        extra: { lx: JSON.stringify(it) },
-      };
-    }
-
-    // 兼容 {list}/{data.list}/数组/{songs} 各种返回形状
-    function normalizeSongs(v, rec) {
-      let list = null;
-      if (Array.isArray(v)) list = v;
-      else if (v && Array.isArray(v.list)) list = v.list;
-      else if (v && v.data && Array.isArray(v.data.list)) list = v.data.list;
-      else if (v && v.data && Array.isArray(v.data.lists)) list = v.data.lists;
-      else if (v && Array.isArray(v.songs)) list = v.songs;
-      if (!list) return [];
-      const out = [];
-      for (let i = 0; i < list.length; i++) {
-        const s = normalizeSongItem(list[i], rec);
-        if (s) out.push(s);
-      }
-      return out;
-    }
-
     function pick(obj, keys, fallback) {
       if (!obj || typeof obj !== "object") return fallback;
       for (let i = 0; i < keys.length; i++) {
@@ -727,6 +659,17 @@ globalThis.__mfPlugin = {
       return "t|" + String((song && (song.name || song.title)) || "") + "|" + String((song && song.artist) || "");
     }
 
+    // gmd/核心渠道平台名 → 洛雪源 key(wy/kg/kw/tx/mg);qianqian/soda 洛雪无对应,
+    // 返回原值让源脚本自行判断(它会明确报「不支持」而不是伪造成功)。
+    const GMD_TO_LX = { netease: "wy", kugou: "kg", kuwo: "kw", qq: "tx", migu: "mg", wy: "wy", kg: "kg", kw: "kw", tx: "tx", mg: "mg" };
+    function lxSourceKeyOf(song) {
+      let src = String((song && song.source) || "");
+      if (!src && song && song.sourceData) {
+        try { src = String((safeParse(song.sourceData) || {}).source || ""); } catch (e) { src = ""; }
+      }
+      return GMD_TO_LX[src] || src || "";
+    }
+
     // 用洛雪 musicUrl action 取直链;song.extra.lx 里保存了搜索时的原始 musicInfo
     async function resolveStreamUrl(rec, song) {
       const ids = sourceIdsWithAction(rec, ["musicUrl"]);
@@ -734,7 +677,10 @@ globalThis.__mfPlugin = {
       let musicInfo = null;
       if (song && song.extra && song.extra.lx) musicInfo = safeParse(song.extra.lx);
       if (!musicInfo || typeof musicInfo !== "object") {
-        musicInfo = { songmid: song && song.id, hash: song && song.id, id: song && song.id, name: song && (song.name || song.title), singer: song && song.artist, albumName: song && song.album };
+        // 2026-10-03 真机 mock 实测:musicInfo 必须携带 source 平台键(洛雪规范字段),
+        // 聚合型源(统一/星海等)读它分流上游 —— 不带会直接报「暂不支持此音源」。
+        // 按平台 ID 直查时 ID 就写在 songmid/hash/id 三个键上(洛雪各端兼容读法)。
+        musicInfo = { songmid: song && song.id, hash: song && song.id, id: song && song.id, name: song && (song.name || song.title), singer: song && song.artist, albumName: song && song.album, source: lxSourceKeyOf(song) };
       }
       const q = cfgArr("quality");
       const quality = q.length ? q[0] : "320k";
@@ -748,23 +694,6 @@ globalThis.__mfPlugin = {
         } catch (e) { lastErr = e; }
       }
       throw lastErr || new Error("musicUrl 全部候选源失败");
-    }
-
-    // 搜索后预取直链:失败逐首记日志(可见),不中断整体结果
-    async function prefetchStreams(rec, songs) {
-      if (!cfgOn("prefetchStreams", true)) return;
-      const cap = clamp(cfgNum("prefetchMax", 10), 1, 50, 10);
-      const n = Math.min(cap, songs.length);
-      for (let i = 0; i < n; i++) {
-        const s = songs[i];
-        try {
-          const url = await resolveStreamUrl(rec, s);
-          s.url = url;
-          cacheUrl([songKey(s), songTitleKey(s)], url);
-        } catch (e) {
-          log("预取直链失败(" + s.name + " @" + rec.name + "): " + String((e && e.message) || e));
-        }
-      }
     }
 
     // 「软失败空结果」契约:优先用核心注入的 host.fallback.makeEmptyResult(新版核心),
@@ -949,57 +878,7 @@ globalThis.__mfPlugin = {
         return { sources: list.map((r) => ({ name: r.name, version: r.version, author: r.author, sources: r.sources, actions: r.actions, origin: r.origin, state: r.state })) };
       },
 
-      // 核心搜索入口(search 能力):与 searchSongs 同一实现
-      async search(config, params) {
-        return this.searchSongs(config, params);
-      },
-
-      async searchSongs(config, params) {
-        // withFallback 全部音源回退后返回 {empty,message,trace}(无 songs 字段),
-        // 这里补齐 songs:[] 让搜索返回形状恒稳定(核心侧也已加同样防御)。
-        const r = await this.searchSongsInner(config, params);
-        return r && r.songs ? r : Object.assign({ songs: [] }, r);
-      },
-
-      async searchSongsInner(config, params) {
-        const q = String((params && (params.query !== undefined ? params.query : params.keyword)) || "");
-        if (!q) return { songs: [], message: "搜索词为空" };
-        return withFallback("search", async (rec) => {
-          const ids = sourceIdsWithAction(rec, ["musicSearch", "search"]);
-          if (!ids.length) throw new Error("该音源未声明 musicSearch 能力(actions=" + (rec.actions.join(",") || "-") + ")");
-          const page = (params && params.page) || 1;
-          const limit = clamp((params && params.limit) || 20, 1, 100, 20);
-          let lastErr = null;
-          for (let i = 0; i < ids.length; i++) {
-            try {
-              const info = ids[i].action === "search" ? { keyword: q, page: page } : { keyword: q, page: page, pagesize: limit };
-              const v = await callAction(rec, ids[i].action, info, ids[i].id);
-              const songs = normalizeSongs(v, rec);
-              if (songs.length) { await prefetchStreams(rec, songs); return { songs: songs, source: rec.name }; }
-            } catch (e) { lastErr = e; }
-          }
-          throw lastErr || new Error("musicSearch 未返回可用结果");
-        });
-      },
-
-      // 洛雪标准协议无专辑搜索:直接给明确空结果(不发试探请求,失败可见)
-      async searchAlbums() {
-        return { albums: [], message: "洛雪标准协议(request actions 仅 musicSearch/musicUrl/lyric/pic)不含专辑搜索;专辑能力由 go-music-dl 等插件提供。" };
-      },
-
-      async searchPlaylists() {
-        return { playlists: [], message: "洛雪标准协议不含歌单搜索;歌单能力由 go-music-dl 等插件提供。" };
-      },
-
-      async playlistSongs() {
-        return { songs: [], message: "洛雪标准协议不含歌单详情(sheet);远程歌单由 go-music-dl 等插件提供。" };
-      },
-
-      async recommend() {
-        return { songs: [], message: "洛雪标准协议不含每日推荐;首页推荐由 go-music-dl 等插件提供。" };
-      },
-
-      /** 同步方法(契约:纯同步,返回 string)。直链来自搜索期预取缓存;未命中返回 ""(空直链 web 行,播放时走核心兜底)。 */
+      /** 同步方法(契约:纯同步,返回 string)。直链来自 resolveStream 的缓存;未命中返回 ""(播放时走核心换源兜底)。 */
       streamUrl(config, song) {
         const direct = pick(song || {}, ["url", "playUrl", "playUrl", "downloadUrl"], null);
         if (typeof direct === "string" && isHttpUrl(direct)) return direct;
@@ -1007,55 +886,33 @@ globalThis.__mfPlugin = {
         if (typeof exUrl === "string" && isHttpUrl(exUrl)) return exUrl;
         const hit = urlCache[songKey(song)] || urlCache[songTitleKey(song)] || "";
         if (hit) return hit;
-        log("streamUrl 未命中缓存: " + songKey(song) + " (直链需搜索预取;未命中时播放走核心换源兜底)");
+        log("streamUrl 未命中缓存: " + songKey(song) + " (未命中时播放走核心换源兜底)");
         return "";
       },
 
-      /** 异步取链(能力补强):搜索未预取到的歌曲可由此现取;返回 {url} 或 {empty,message}。 */
+      /**
+       * 异步按 ID 直查(核心跨插件取链兜底的入口,2026-10-04 契约):
+       * 本尊重搜+全平台失败后,核心对本插件调 resolveStream(config, song) ——
+       * 按歌的 sourceData(source=平台名, remoteId=平台原生歌曲 ID)直接走
+       * 洛雪源脚本 musicUrl 换直链,多音源轮切,不需要搜索。
+       * 返回契约:成功=直链 URL 字符串;失败/无链=空串 ""(不抛错)。
+       */
       async resolveStream(config, song) {
-        return withFallback("url", async (rec) => {
-          const url = await resolveStreamUrl(rec, song);
-          cacheUrl([songKey(song), songTitleKey(song)], url);
-          return { url: url, source: rec.name };
-        });
-      },
-
-      async searchLyrics(song) {
-        return withFallback("lyrics", async (rec) => {
-          const ids = sourceIdsWithAction(rec, ["lyric"]);
-          if (!ids.length) throw new Error("该音源未声明 lyric 能力(actions=" + (rec.actions.join(",") || "-") + ")");
-          let musicInfo = null;
-          if (song && song.extra && song.extra.lx) musicInfo = safeParse(song.extra.lx);
-          if (!musicInfo || typeof musicInfo !== "object") musicInfo = { songmid: song && song.id, id: song && song.id, name: song && (song.name || song.title), singer: song && song.artist };
-          let lastErr = null;
-          for (let i = 0; i < ids.length; i++) {
-            try {
-              const v = await callAction(rec, ids[i].action, { musicInfo: musicInfo }, ids[i].id);
-              const lrc = typeof v === "string" ? v : (v && (v.lyric || v.lrc || ""));
-              if (lrc && String(lrc).trim()) return { lrc: String(lrc), source: rec.name };
-            } catch (e) { lastErr = e; }
-          }
-          throw lastErr || new Error("该音源未返回歌词");
-        });
-      },
-
-      async searchCover(song) {
-        return withFallback("cover", async (rec) => {
-          const ids = sourceIdsWithAction(rec, ["pic", "cover"]);
-          if (!ids.length) throw new Error("该音源未声明 pic 能力(actions=" + (rec.actions.join(",") || "-") + ")");
-          let musicInfo = null;
-          if (song && song.extra && song.extra.lx) musicInfo = safeParse(song.extra.lx);
-          if (!musicInfo || typeof musicInfo !== "object") musicInfo = { songmid: song && song.id, id: song && song.id, name: song && (song.name || song.title), singer: song && song.artist };
-          let lastErr = null;
-          for (let i = 0; i < ids.length; i++) {
-            try {
-              const v = await callAction(rec, ids[i].action, { musicInfo: musicInfo }, ids[i].id);
-              const url = typeof v === "string" ? v : (v && (v.url || v.pic || v.cover || ""));
-              if (isHttpUrl(url)) return { url: String(url), source: rec.name };
-            } catch (e) { lastErr = e; }
-          }
-          throw lastErr || new Error("该音源未返回封面");
-        });
+        try {
+          const r = await withFallback("url", async (rec) => {
+            const url = await resolveStreamUrl(rec, song);
+            cacheUrl([songKey(song), songTitleKey(song)], url);
+            return { url: url, source: rec.name };
+          });
+          const url = r && (typeof r === "string" ? r : (r.url || r.playUrl || ""));
+          if (isHttpUrl(url)) return url;
+          const msg = r && r.message ? String(r.message).slice(0, 160) : "无可用直链";
+          log("resolveStream 未命中(" + songKey(song) + "): " + msg);
+          return "";
+        } catch (e) {
+          log("resolveStream 失败(" + songKey(song) + "): " + String((e && e.message) || e));
+          return "";
+        }
       },
 
       canHandle() { return false; },

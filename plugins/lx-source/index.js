@@ -1,5 +1,5 @@
 // ============================================================================
-//  MusicFlow 外置插件：洛雪(lx)音源内联运行时  v1.0.1
+//  MusicFlow 外置插件：洛雪(lx)音源内联运行时  v1.0.1(manifest v1.1.0)
 // ----------------------------------------------------------------------------
 //  能力：把你自己的洛雪音乐(LX Music)音源 .js 直接放进 MusicFlow 沙箱执行，
 //        自动解析 @name/@version/@author 头并注册成可用音源。
@@ -20,8 +20,10 @@
 //  失效自动切换(两层)：
 //    层1(插件内)：withFallback 对已配置的多音源按序轮切，报错/空结果都切下一个，
 //                 回退轨迹写入返回 message；
-//    层2(插件外)：本插件整体不可用时，核心 streamFallback 链自动改用 go-music-dl
-//                 等其它已启用 source 插件(resolveStreamProvider)。
+//    层2(插件外):本插件整体不可用(全部音源均无结果/报错)时,核心 core-search-fallback
+//                 (「搜索兜底」)自动改用其它已启用 source 插件再搜一次,并回传
+//                 fallbackFrom(结果来自哪个插件)与 trace(回退轨迹);
+//                 播放链那一路仍是 streamFallback(resolveStreamProvider),两条互不干扰。
 //
 //  失败可见(不静默)：下载失败/语法错/顶层抛错/未注册/取链 403/超时，
 //  都在返回值 message 与日志里给出原文与位置。
@@ -31,13 +33,14 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.0.11",
+    version: "1.1.0",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时:把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行,自动解析" +
       "@name/@version/@author 头并注册成可用音源,提供取链播放 / 搜索(音源支持时) / 歌词 / 封面。" +
-      "不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源," +
-      "本插件整体不可用时核心会自动回退到其它已启用 source 插件。" +
+      "不需要洛雪服务端,也不需要指向任何外部服务地址。某个音源失效会自动回退到其它已配置音源;" +
+      "本插件整体不可用(全部音源均无结果/报错)时,核心「搜索兜底」会自动改用其它已启用的源插件" +
+      "再试一次(结果来自哪个插件与回退轨迹会回传前端)。" +
       "注意:本插件会在你的 MusicFlow 服务进程内执行第三方音源脚本,等价于运行不是你写的程序,请只添加你信任的音源;默认不启用。",
     capabilities: [
       "search",
@@ -68,7 +71,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "crypto", "songs:read", "songs:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.0.11/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.0/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -764,16 +767,27 @@ globalThis.__mfPlugin = {
       }
     }
 
+    // 「软失败空结果」契约:优先用核心注入的 host.fallback.makeEmptyResult(新版核心),
+    // 拿到的是与核心兜底层同构的形状 {empty,message,trace,songs:[]};
+    // 拿不到(老核心 / 非沙箱环境)就退回手写同形状对象 —— 契约本身向后兼容。
+    function softEmpty(message, trace) {
+      try {
+        if (host && host.fallback && typeof host.fallback.makeEmptyResult === "function") {
+          return host.fallback.makeEmptyResult(message, trace || []);
+        }
+      } catch (e) {
+        log("makeEmptyResult 不可用,回退手写空结果: " + String((e && e.message) || e));
+      }
+      return { empty: true, message: String(message || ""), trace: trace || [] };
+    }
+
     // 音源级自动回退:报错 / 空结果都按配置切下一个可用音源,轨迹回传调用方
     async function withFallback(kind, fn) {
       const fbErr = cfgOn("fallbackOnError", true);
       const fbEmpty = cfgOn("fallbackOnEmpty", true);
       const list = await readySources();
       if (!list.length) {
-        return {
-          empty: true,
-          message: "没有可用的洛雪音源:请在插件配置「音源列表」里添加至少一个 .js URL 或本地文件名(音源加载失败会在插件页与日志显示原因)。",
-        };
+        return softEmpty("没有可用的洛雪音源:请在插件配置「音源列表」里添加至少一个 .js URL 或本地文件名(音源加载失败会在插件页与日志显示原因)。");
       }
       const trace = [];
       for (let i = 0; i < list.length; i++) {
@@ -796,11 +810,9 @@ globalThis.__mfPlugin = {
           log(kind + " 失败 " + rec.name + " -> " + msg + ",回退下一音源");
         }
       }
-      return {
-        empty: true,
-        message: "全部洛雪音源均无结果(" + trace.length + " 次回退): " + trace.join(" | "),
-        trace: trace,
-      };
+      // 插件内全部音源都用尽 = 本插件自身软失败:回这个空结果,核心(core-search-fallback)
+      // 会据此再改用其它已启用源插件试一次(插件内的轮切与核心的跨插件兜底是两层,各管一段)。
+      return softEmpty("全部洛雪音源均无结果(" + trace.length + " 次回退): " + trace.join(" | "), trace);
     }
 
     // ---------------- 方法(与 go-music-dl 方法面对齐) ----------------

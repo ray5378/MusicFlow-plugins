@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.1.1",
+    version: "1.1.2",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -49,16 +49,19 @@ globalThis.__mfPlugin = {
     sourcePreference: ["wy", "kg", "kw", "tx"],
     defaultEnabled: false,
     minAppVersion: "1.7.39",
-    // test/health 要全量加载所有音源:12 个源串行远超默认 20s 墙钟预算。
+    // test/health/resolveStream 都要全量加载所有音源:12 个源串行远超默认 20s 墙钟预算。
     // 但不能只写 longRunning —— 那会把方法路由到 worker 线程,而 worker 下
     // host.jsenv 一律 UNSUPPORTED。longRunningInMain(后端 >= 4.0.76)让这两个方法
     // 拿到长预算 + 软看门狗(await 网络不计时),同时强制留在主线程。
-    longRunning: { test: 300000, health: 300000 },
-    longRunningInMain: ["test", "health"],
+    // resolveStream(纯取链兜底入口)同理:首次冷启动要把 12 个音源脚本下载+在 jsenv
+    // 里执行完才有链可换,20s 默认预算实测必超时(240 真机实测
+    // 「沙箱限制:单次调用超时(配额 20000ms)」),故与 test 同级给 300s。
+    longRunning: { test: 300000, health: 300000, resolveStream: 300000 },
+    longRunningInMain: ["test", "health", "resolveStream"],
     permissions: ["net", "fs", "storage", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.0/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.2/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",

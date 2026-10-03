@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.1.2",
+    version: "1.1.3",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -61,7 +61,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "storage", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.2/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.3/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -673,6 +673,25 @@ globalThis.__mfPlugin = {
       return GMD_TO_LX[src] || src || "";
     }
 
+    /**
+     * 取「平台原生歌曲 ID」。核心取链兜底(findFallbackStream)传进来的是**库内歌曲**:
+     * 平台原生 ID 在 sourceData.remoteId(网易云 1323099451 这类),而 song.id 是
+     * MusicFlow 自己的 UUID。UUID 当平台 ID 发给音源必然取不到有效直链
+     * (2026-10-04 240 实测:酷狗型音源把 UUID 当 id,回了一个 301 跳 HTML 的代理链,
+     * 核心 probe 判不可播 → 整条兜底白跑)。故:sourceData 优先,缺失才回退 song.id。
+     */
+    function nativeSongIdOf(song) {
+      if (song && song.sourceData) {
+        try {
+          const sd = typeof song.sourceData === "string" ? safeParse(song.sourceData) : song.sourceData;
+          const ex = (sd && sd.extra) || {};
+          const id = (sd && (sd.remoteId || sd.songId || sd.id)) || ex.song_id || ex.songId || ex.id;
+          if (id !== undefined && id !== null && String(id) !== "") return String(id);
+        } catch (e) { /* 解析失败则回退 */ }
+      }
+      return String((song && song.id) || "");
+    }
+
     // 用洛雪 musicUrl action 取直链;song.extra.lx 里保存了搜索时的原始 musicInfo
     async function resolveStreamUrl(rec, song) {
       const ids = sourceIdsWithAction(rec, ["musicUrl"]);
@@ -683,7 +702,9 @@ globalThis.__mfPlugin = {
         // 2026-10-03 真机 mock 实测:musicInfo 必须携带 source 平台键(洛雪规范字段),
         // 聚合型源(统一/星海等)读它分流上游 —— 不带会直接报「暂不支持此音源」。
         // 按平台 ID 直查时 ID 就写在 songmid/hash/id 三个键上(洛雪各端兼容读法)。
-        musicInfo = { songmid: song && song.id, hash: song && song.id, id: song && song.id, name: song && (song.name || song.title), singer: song && song.artist, albumName: song && song.album, source: lxSourceKeyOf(song) };
+        // 平台原生 ID(见 nativeSongIdOf 说明):绝不能把 MusicFlow 的 UUID 当平台 ID 发出去。
+        const sid = nativeSongIdOf(song);
+        musicInfo = { songmid: sid, hash: sid, id: sid, name: song && (song.name || song.title), singer: song && song.artist, albumName: song && song.album, source: lxSourceKeyOf(song) };
       }
       const q = cfgArr("quality");
       const quality = q.length ? q[0] : "320k";

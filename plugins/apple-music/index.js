@@ -38,7 +38,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "apple-music",
     name: "Apple Music 榜单",
-    version: "1.0.4",
+    version: "1.0.5",
     type: "recommender",
     schedules: true,
     description:
@@ -599,14 +599,16 @@ globalThis.__mfPlugin = {
           var n = Math.min(Math.max(parseInt(config && config.hotPlaylistCount, 10) || 10, 1), 30);
           for (var r = 1; r <= n && playlists.length < homeCount; r++) {
             try {
-              var hp = await host.playlists.getMeta(HOT_PREFIX + r);
+              var getOne = host.playlists.getMeta || host.playlists.get;
+              var hp = await getOne(HOT_PREFIX + r);
               if (hp) playlists.push({ id: hp.id, name: hp.name || ("Apple Music·热门#" + r), coverArt: hp.cover_art ? ("pl-" + hp.id) : "", songCount: hp.song_count || 0 });
             } catch (e) { /* 单个读取失败跳过 */ }
           }
           continue;
         }
         try {
-          var p = await host.playlists.getMeta(PLAYLIST_PREFIX + cid);
+          var getOne = host.playlists.getMeta || host.playlists.get;
+          var p = await getOne(PLAYLIST_PREFIX + cid);
           if (!p) continue; // 未同步入库 → 不在本地分区展示
           playlists.push({
             id: p.id,

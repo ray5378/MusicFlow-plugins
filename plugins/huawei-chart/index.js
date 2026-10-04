@@ -20,7 +20,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "huawei-chart",
     name: "华为音乐榜单",
-    version: "1.2.0",
+    version: "1.2.1",
     type: "recommender",
     schedules: true,
     description:
@@ -525,7 +525,8 @@ globalThis.__mfPlugin = {
         for (var i = 0; i < chartIds.length && playlists.length < homeCount; i++) {
           var cid = chartIds[i];
           try {
-            var p = await host.playlists.getMeta(PLAYLIST_PREFIX + cid);
+            var getOne = host.playlists.getMeta || host.playlists.get;
+            var p = await getOne(PLAYLIST_PREFIX + cid);
             if (!p) continue; // 未同步入库 → 不在本地分区展示
             playlists.push({
               id: p.id,

@@ -14,7 +14,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "kugou-chart",
     name: "酷狗榜单",
-    version: "1.7.0",
+    version: "1.7.1",
     type: "recommender",
     schedules: true,
     description:
@@ -272,7 +272,8 @@ globalThis.__mfPlugin = {
         for (var i = 0; i < rankIds.length && playlists.length < homeCount; i++) {
           var rid = rankIds[i];
           try {
-            var p = await host.playlists.getMeta(PLAYLIST_PREFIX + rid);
+            var getOne = host.playlists.getMeta || host.playlists.get;
+            var p = await getOne(PLAYLIST_PREFIX + rid);
             if (!p) continue; // 未同步入库 → 不在本地分区展示
             playlists.push({
               id: p.id,

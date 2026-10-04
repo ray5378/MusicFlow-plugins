@@ -19,6 +19,7 @@
     "songs:write",
     "playlists:write"
   ],
+  "recommendCacheTtlSeconds": 120,
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
   "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/qq-chart-v1.7.0/qq-chart.tar.gz",

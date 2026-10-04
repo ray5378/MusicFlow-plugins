@@ -50,6 +50,7 @@ globalThis.__mfPlugin = {
     minAppVersion: "1.7.39",
     longRunning: { runDailyJob: 180000, searchPlaylists: 20000, playlistSongs: 120000, search: 20000, searchSongs: 20000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
+    recommendCacheTtlSeconds: 120,
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
@@ -598,14 +599,14 @@ globalThis.__mfPlugin = {
           var n = Math.min(Math.max(parseInt(config && config.hotPlaylistCount, 10) || 10, 1), 30);
           for (var r = 1; r <= n && playlists.length < homeCount; r++) {
             try {
-              var hp = await host.playlists.get(HOT_PREFIX + r);
+              var hp = await host.playlists.getMeta(HOT_PREFIX + r);
               if (hp) playlists.push({ id: hp.id, name: hp.name || ("Apple Music·热门#" + r), coverArt: hp.cover_art ? ("pl-" + hp.id) : "", songCount: hp.song_count || 0 });
             } catch (e) { /* 单个读取失败跳过 */ }
           }
           continue;
         }
         try {
-          var p = await host.playlists.get(PLAYLIST_PREFIX + cid);
+          var p = await host.playlists.getMeta(PLAYLIST_PREFIX + cid);
           if (!p) continue; // 未同步入库 → 不在本地分区展示
           playlists.push({
             id: p.id,

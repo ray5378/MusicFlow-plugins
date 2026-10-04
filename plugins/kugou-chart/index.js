@@ -24,6 +24,7 @@ globalThis.__mfPlugin = {
     minAppVersion: "1.7.39",
     longRunning: { runDailyJob: 300000 },
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:write"],
+    recommendCacheTtlSeconds: 120,
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
     downloadUrl:
@@ -271,7 +272,7 @@ globalThis.__mfPlugin = {
         for (var i = 0; i < rankIds.length && playlists.length < homeCount; i++) {
           var rid = rankIds[i];
           try {
-            var p = await host.playlists.get(PLAYLIST_PREFIX + rid);
+            var p = await host.playlists.getMeta(PLAYLIST_PREFIX + rid);
             if (!p) continue; // 未同步入库 → 不在本地分区展示
             playlists.push({
               id: p.id,

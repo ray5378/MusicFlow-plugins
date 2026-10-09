@@ -36,7 +36,7 @@ var PLATFORMS = {
     routes: {
       qrKey: "/login/qrcode/unikey", // go:interface 域纯 form POST {type:3}(弃 weapi+type:1,确认后 8821)
       qrCheck: "/login/qrcode/client/login", // go:interface 域纯 form POST {key,type:3} → 800/801/802/803
-      daily: "/recommend/songs", // weapi POST → data.dailySongs[](主接口,日推单曲)
+      daily: "/v3/discovery/recommend/songs", // weapi POST → data.dailySongs[](NeteaseCloudMusicApi 蓝本:真实路径 weapi/v3/discovery/recommend/songs,/recommend/songs 是库对外路由名,直打 404)
       authProbe: "/nuser/account/get", // 运行时有效性检测(go 蓝本 weapi/nuser/account/get;误带 /api/w 前缀 240 真机报 8821)
       refresh: null, // ⚠️ 无刷新通道:token/refresh 无法复活过期会话,不做
       history: null // P1 R12(网易云有,QQ 侧无;首发不接)

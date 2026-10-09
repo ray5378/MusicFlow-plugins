@@ -1677,7 +1677,7 @@ function DailySnapshot(host) {
 
 var MANIFEST = {
   id: "daily-rec-platform",
-  name: "QQ音乐，网易云音乐账号每日推荐",
+  name: "平台账号每日推荐",
   version: "1.1.0",
   type: "recommender",
   description: "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
@@ -1841,7 +1841,7 @@ var MANIFEST = {
   documentation: "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（歌单 id 固定不变，名字每日带日期更新）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别弹出对应平台的二维码（网易云为登录链接由服务端渲染成二维码，QQ/酷狗为官方二维码图）。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
   i18n: {
     en: {
-      name: "Daily Recommendations (QQ/NetEase/KuGou)",
+      name: "Platform Account Daily Recommendations",
       description: "Fetches personal Daily Recommendations from NetEase Cloud Music, QQ Music and KuGou Music, matches them strictly against the local library, and produces 2 playlists per platform (dated daily + rolling history of the last N days, configurable). Supports QR-code login binding; credentials stay in host.storage with fingerprint-only logs. Source selection enforces the library-match gate before optional cross-plugin online completion (album+duration passed through); never builds online stream URLs itself.",
       groups: { bind: "Account Binding", match: "Matching", home: "Home Cards", history: "History" },
       fields: {

@@ -1,6 +1,6 @@
 {
   "id": "daily-rec-platform",
-  "name": "QQ音乐，网易云音乐账号每日推荐",
+  "name": "平台账号每日推荐",
   "version": "1.1.0",
   "type": "recommender",
   "description": "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",

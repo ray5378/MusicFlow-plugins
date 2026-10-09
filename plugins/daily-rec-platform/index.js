@@ -1598,7 +1598,16 @@ function HistoryRoller(host) {
     var self = this;
     return host.storage.get("prev:" + platform).then(function (prevId) {
       return self.buildUnion(platform, dateStr, lastNDays).then(function (union) {
-        return host.playlists.replaceEntries(def.historyId, union).then(function () {
+        // upsert(带 name/平台徽标)而非 replaceEntries:后者对不存在歌单落宿主
+        // 中性缺省名 —— 首跑三个历史歌单被建成「ListenBrainz 推荐」的根因;
+        // upsert 每次刷新都带名字,存量错误名也会被自动纠正。
+        return host.playlists.upsert(def.historyId, {
+          name: def.label + " 历史日推",
+          description: "由 daily-rec-platform 插件维护:" + def.label + "最近 " + lastNDays + " 天每日推荐并集去重(新→旧滚动更新)。",
+          sourcePlatform: platform,
+          sourceUrl: def.homeUrl,
+          entries: union
+        }).then(function () {
           var delJob = (prevId && prevId !== def.playlistPrefix + dateStr)
             ? host.playlists.delete(prevId).then(function (ok) { return ok ? prevId : null; }, function () { return null; })
             : Promise.resolve(null);

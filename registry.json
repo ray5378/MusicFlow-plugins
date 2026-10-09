@@ -2,15 +2,16 @@
   "name": "MusicFlow 官方插件市场",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
   "plugins": [
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/listenbrainz/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lastfm/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/playlist-cleaner/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/qq-chart/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/kugou-chart/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/netease-chart/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/huawei-chart/plugin.json",
     "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/apple-music/plugin.json",
-    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lx-source/plugin.json"
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/daily-rec-platform/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/go-music-dl/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/huawei-chart/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/kugou-chart/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lastfm/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/listenbrainz/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/lx-source/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/netease-chart/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/playlist-cleaner/plugin.json",
+    "https://raw.githubusercontent.com/ray5378/MusicFlow-plugins/master/plugins/qq-chart/plugin.json"
   ]
 }

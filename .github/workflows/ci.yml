@@ -4,6 +4,8 @@ name: plugin-spec
 #   node scripts/check.mjs —— validateManifest 白名单 / __mfPlugin 沙箱契约 /
 #   index.js 与 plugin.json 一致 / 每项能力有对应 impl 方法 / downloadUrl tag 与版本匹配。
 # 零依赖(纯 Node 内置模块),秒级完成。发布前必须通过(见 README「发布新版本」)。
+# 另含 registry 作业:master push 时用 scripts/gen-registry.mjs 重新生成市场清单
+# registry.json,有变更则以 CI 身份提交(PR 只校验,防越权)。
 
 on:
   push:
@@ -29,3 +31,40 @@ jobs:
       # 缺失会被宿主四维门禁(albumRequired 默认开)整批拒导且无报错。
       - name: 校验导入门禁契约(scripts/gate-check.mjs)
         run: node scripts/gate-check.mjs
+
+  registry:
+    name: 市场清单自动生成
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 生成 registry.json(scripts/gen-registry.mjs)
+        run: node scripts/gen-registry.mjs
+      # 仅 push+master 允许提交(PR 只校验,防越权)。防循环:registry.json 不在
+      # release.yml 的 plugins/** paths 白名单里,本提交不会触发 auto-release;
+      # 本提交自身再次触发本 workflow 时 gen 产物零 diff,自然收敛。
+      - name: push+master 有变更则以 CI 身份提交(仅 registry.json)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          if git diff --quiet -- registry.json; then
+            echo "registry.json 无变化,跳过提交"
+          else
+            git config user.name "musicflow-ci"
+            git config user.email "musicflow-ci@users.noreply.github.com"
+            git add registry.json
+            git commit -m "ci(registry): 自动更新插件市场清单"
+            git push
+          fi
+      - name: 非 push+master 只校验(有 diff 即失败,提示先本地再生)
+        if: github.event_name != 'push' || github.ref != 'refs/heads/master'
+        run: |
+          if ! git diff --quiet -- registry.json; then
+            echo "::error::registry.json 过期:请本地运行 node scripts/gen-registry.mjs 后一并提交"
+            git diff -- registry.json
+            exit 1
+          fi

@@ -244,18 +244,49 @@ function utils_absUrl(base, loc) {
 }
 
 /** host.http 响应的 Set-Cookie(核心合并串)解析进 jar(name→value,丢弃属性段)。 */
+/** set-cookie 串/数组 → 逐条条目。核心 4.3.2 起 host.http 响应带 setCookieList 数组
+ *  (undici getSetCookie(),主仓 discovery.ts 注入)时直接透传;否则对合串做 RFC 感知
+ *  拆分:仅当逗号后随「token=」形态才是分隔符 —— Expires=Wed, 09 Oct… 日期自带逗号,
+ *  朴素 split 会把日期片段炸成假 cookie(240 真机:QQ jar 出现 EXPIRES/PATH/DOMAIN 假键)。
+ *  例:"A=1; Expires=Wed, 09 Oct 2026 07:00:00 GMT, B=2" → ["A=1; Expires=…GMT", " B=2"]。 */
+function utils_splitSetCookie(sc) {
+  if (sc && typeof sc.join === "function") return sc; // 数组直传(getSetCookie 通道)
+  var s = String(sc || "");
+  if (!s) return [];
+  var segs = s.split(",");
+  var parts = [];
+  var buf = "";
+  for (var i = 0; i < segs.length; i++) {
+    buf = buf ? buf + "," + segs[i] : segs[i];
+    var nxt = segs[i + 1];
+    if (nxt !== undefined && /^\s*[^\s=;,]+=/.test(nxt)) { parts.push(buf); buf = ""; }
+  }
+  parts.push(buf);
+  return parts;
+}
+
+var COOKIE_ATTRS = { path: 1, domain: 1, expires: 1, "max-age": 1, samesite: 1, secure: 1, httponly: 1, version: 1, comment: 1 };
+
+/** 单条 cookie 条目("k=v; attrs")并入 jar:值截断于首个 ";"(属性段),
+ *  属性名/空值跳过 —— 删除型空值不得冲掉有效值(T04c),EXPIRES/PATH 等假键不得进 jar(T05)。 */
+function utils_mergeCookieEntry(entry, jar) {
+  var eq = String(entry || "").indexOf("=");
+  if (eq <= 0) return jar;
+  var name = entry.slice(0, eq).trim();
+  var val = entry.slice(eq + 1).trim();
+  var semi = val.indexOf(";");
+  if (semi !== -1) val = val.slice(0, semi).trim();
+  if (!name || COOKIE_ATTRS[name.toLowerCase()] || val === "") return jar;
+  jar[name] = val;
+  return jar;
+}
+
 function utils_parseCookies(res, jar) {
+  jar = jar || {};
   var h = (res && res.headers) || {};
   var sc = h["set-cookie"] || h["Set-Cookie"] || "";
-  var pairs = String(sc).match(/[^\s=;,]+=[^;,]*/g) || [];
-  for (var i = 0; i < pairs.length; i++) {
-    var kv = pairs[i].split("=");
-    var val = kv.length > 1 ? kv.slice(1).join("=").trim() : "";
-    // 空值(删除型 Set-Cookie,如后续跳点回发的 p_skey=;)不得覆盖已收集的有效值
-    // ——平铺 jar 无域隔离,QQ check_sig 一跳多枚 cookie + 后续删除 cookie 会把
-    // p_skey 冲成空串(240 真机:jar keys 明明有 p_skey 却判「未取得」)。
-    if (kv[0] && val !== "") jar[kv[0].trim()] = val;
-  }
+  var entries = utils_splitSetCookie(sc);
+  for (var i = 0; i < entries.length; i++) utils_mergeCookieEntry(entries[i], jar);
   return jar;
 }
 
@@ -818,6 +849,10 @@ function SessionGuard(host, upstream, store) {
       });
     }
     return probeNetease(cred).then(function (p) {
+      // ⚠️ 成功回调必须返回 {ok,…}(eval.js:1884「cannot read property 'ok' of
+      // undefined」根因:此回调曾为空体 → probe 成功即返回 undefined → runDailyJob 崩)。
+      if (p && p.ok) return { ok: true, cred: cred };
+      return { ok: false, code: (p && p.code) || "AUTH_EXPIRED", message: (p && p.message) || "网易云凭据已失效，请在插件配置页重新扫码绑定" };
     }, function (e) {
       return { ok: false, code: (e && e.code) || "AUTH_UNKNOWN", message: (e && e.message) || "鉴权未知" };
     });
@@ -1040,14 +1075,30 @@ function qqPtLogin(host, jar, code) {
     if (!jar["qm_keyst"]) jar["qm_keyst"] = qmKey;
     if (!jar["musickey"] && (data.musickey || data.music_key)) jar["musickey"] = data.musickey || data.music_key;
     if (!jar["qqmusic_key"]) jar["qqmusic_key"] = qmKey;
-    host.log("qqPtLogin: QQLogin 成功, qm_keyst 已取得(指纹 " + utils_fp(qmKey) + ", uin=" + utils_fp(uin) + ")");
+    // 昵称/头像:QQLogin data.nick/logo 实测恒空(240 真机原始响应 nick:""/logo:"")。
+    // 昵称从 ptlogin ptnick_<uin> cookie 解码(hex 编码 UTF-8,如 526179→Ray);
+    // 头像用 qlogo QQ 号兜底(状态块直显 URL,无需服务端拉取)。都拿不到留空。
+    var nick = String(data.nickname || data.nick || "").trim();
+    if (!nick) {
+      var ptnickHex = jar["ptnick_" + uin] || "";
+      if (ptnickHex && /^[0-9a-fA-F]{2,}$/.test(ptnickHex) && ptnickHex.length % 2 === 0) {
+        try {
+          var hexBytes = "";
+          for (var hx = 0; hx < ptnickHex.length; hx += 2) hexBytes += String.fromCharCode(parseInt(ptnickHex.substr(hx, 2), 16));
+          nick = String(host.crypto.utf8Decode(hexBytes) || "").trim();
+        } catch (e2) { nick = ""; }
+      }
+    }
+    var avatar = String(data.avatar || data.logo || "").trim();
+    if (!avatar && uin) avatar = "https://q1.qlogo.cn/g?b=qq&nk=" + uin + "&s=100";
+    host.log("qqPtLogin: QQLogin 成功, qm_keyst 已取得(指纹 " + utils_fp(qmKey) + ", uin=" + utils_fp(uin) + ", nick=" + (nick ? "已取得" : "空") + ")");
     return {
       cookie: utils_jarHeader(jar),
       musickey: data.musickey || data.music_key || qmKey,
       refreshKey: data.refresh_key || "",
       uin: uin,
-      nickname: String(data.nickname || "").trim(),
-      avatarUrl: data.avatar || "",
+      nickname: nick,
+      avatarUrl: avatar,
       expiresAt: Date.now() + PLATFORMS.qq.credTtlSec * 1000
     };
   });
@@ -1239,9 +1290,23 @@ function QrLoginService(host, upstream, store) {
 
   function finalizeNetease(sessionKey, sess, checkRes) {
     var def = PLATFORMS.netease;
-    // go login.go 口径:check 成功响应 body 的 cookie 字段优先(MUSIC_U 常在此),
-    // 回落 Set-Cookie 头合并。
-    var cookie = (checkRes.json && checkRes.json.cookie) || mergeQQCookie(checkRes.setCookie, "", 0);
+    // go 口径 body cookie 优先 —— 但 240 真机实测:body cookie 只有 MUSIC_A_T(反馈路径
+    // cookie),真会话 MUSIC_U 在 Set-Cookie 头。改取并集:全部 Set-Cookie 条目(核心
+    // setCookieList 数组优先)打底,body cookie 叠加(同名以 body 为准)。
+    var jar = {};
+    var entries = utils_splitSetCookie(checkRes.setCookieList || checkRes.setCookie || "");
+    for (var ei = 0; ei < entries.length; ei++) utils_mergeCookieEntry(entries[ei], jar);
+    var bodyCk = String((checkRes.json && checkRes.json.cookie) || "");
+    var bodySegs = bodyCk ? bodyCk.split(";") : [];
+    for (var bi = 0; bi < bodySegs.length; bi++) utils_mergeCookieEntry(bodySegs[bi], jar);
+    var cparts = [];
+    for (var jk in jar) if (Object.prototype.hasOwnProperty.call(jar, jk)) cparts.push(jk + "=" + jar[jk]);
+    var cookie = cparts.join("; ");
+    if (!jar["MUSIC_U"]) {
+      host.log("finalizeNetease: 警告 — Set-Cookie/body 均未取得 MUSIC_U(jar keys: " + Object.keys(jar).join(",") + ")");
+    } else {
+      host.log("finalizeNetease: MUSIC_U 已取得(指纹 " + utils_fp(jar["MUSIC_U"]) + ")");
+    }
     return upstream.neteasePost(def.routes.authProbe, { csrf_token: "" }, cookie).then(function (pr) {
       var account = (pr.json && (pr.json.account || (pr.json.data && pr.json.data.account))) || {};
       var profile = (pr.json && (pr.json.profile || (pr.json.data && pr.json.data.profile))) || {};
@@ -1256,9 +1321,8 @@ function QrLoginService(host, upstream, store) {
         });
       });
     }, function () {
-      // 探针失败仍按确认处理(cookie 已到手,运行时检测下次 runDailyJob 会定性)
-      var fbCookie = (checkRes.json && checkRes.json.cookie) || mergeQQCookie(checkRes.setCookie, "", 0);
-      var cred = { cookie: fbCookie, uin: 0, nickname: "", avatarUrl: "", expiresAt: 0 };
+      // 探针失败仍按确认处理(并集 cookie 已到手,运行时检测下次 runDailyJob 会定性)
+      var cred = { cookie: cookie, uin: 0, nickname: "", avatarUrl: "", expiresAt: 0 };
       return host.storage.delete(SKEY(sessionKey)).then(function () {
         return store.save("netease", cred).then(function () {
           return { code: 800, state: "confirmed", account: { nickname: "", avatarUrl: "" }, message: "已确认,账号信息待下次探测" };
@@ -1740,8 +1804,9 @@ globalThis.__mfPlugin = {
                 payload.boundAccount = { nickname: nick || "", avatarUrl: base.avatarUrl || "" };
                 payload.authValid = true;
               } else {
+                // 非明确失效码一律「状态未知」(与 status() 同口径,探测 ok=false 不判死)。
                 payload.boundAccount = base;
-                payload.authValid = false;
+                payload.authValid = null;
               }
               return payload;
             }, function () {
@@ -1770,14 +1835,21 @@ globalThis.__mfPlugin = {
               }
               var base = { bound: true, label: PLATFORMS[plat].label, nickname: cred.nickname || "", avatarUrl: cred.avatarUrl || "", valid: null };
               return guard.probe(plat, cred).then(function (p) {
-                base.valid = !!(p && p.ok);
-                if (p && p.ok && p.account) {
+                if (p && p.ok) {
+                  base.valid = true;
                   var acc = p.account || {};
                   base.nickname = acc.nickname || (acc.profile && acc.profile.nickname) || acc.nick || base.nickname;
+                } else {
+                  // 探测未确认(非明确失效码):valid=null 状态未知,不误报失效(T05 收紧)。
+                  base.valid = null;
+                  host.log("status[" + plat + "] 探测未确认: " + String((p && (p.reason || p.code)) || "ok=false").slice(0, 120));
                 }
                 platforms[plat] = base;
-              }, function () {
-                platforms[plat] = base; // 探测异常:valid=null 状态未知
+              }, function (e) {
+                // 只有平台业务码明确「未登录/过期」才判失效;网络/风控错误=状态未知。
+                base.valid = (e && e.code === "AUTH_EXPIRED") ? false : null;
+                host.log("status[" + plat + "] 探测失败(" + ((e && e.code) || "?") + "): " + String((e && e.message) || e).slice(0, 160));
+                platforms[plat] = base;
               });
             }, function () {
               platforms[plat] = { bound: false, label: PLATFORMS[plat].label, nickname: "", avatarUrl: "", valid: null };
@@ -1881,7 +1953,7 @@ globalThis.__mfPlugin = {
                   if (skip) { lines.push(platform + ": 当日已完成,跳过"); return; }
                   attempted++;
                   return guard.ensureValid(platform, cred).then(function (g) {
-                    if (!g.ok) {
+                    if (!g || !g.ok) {
                       authFailed++;
                       ctx.errorCode = g.code || "AUTH_UNKNOWN";
                       lines.push(diag.render(diag.finish(ctx)) + " — " + (g.message || ""));
@@ -1925,6 +1997,11 @@ globalThis.__mfPlugin = {
                 });
               }, function () {
                 lines.push(platform + ": 读取凭据失败,跳过");
+              }).then(null, function (e) {
+                // 平台级隔离:单平台任何未捕获失败(探测网络错/管线异常/host.http 异常)
+                // 只记日志,不中断其余平台(240 真机:一平台失败拖垮整个 job,仅酷狗出歌单)。
+                host.log("runDailyJob[" + platform + "] 失败: " + ((e && (e.message || e.code)) || e));
+                lines.push(platform + ": 失败 — " + ((e && (e.message || e.code)) || e));
               });
             });
           })(PLATFORM_ORDER[pi]);

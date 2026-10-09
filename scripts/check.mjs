@@ -32,6 +32,9 @@ const VALID_CAPS = [
   "playlistCleanup",
   "lyricProvider", "coverProvider", "renderer", "scrobbler",
   "artistInfo",
+  // 交互能力(T05 §14):扫码登录三方法,经 POST /v1/plugins/:id/action 调用
+  // (backend sandbox.ts CAP_METHODS.qrLogin / qrAction.ts QR_ACTION_METHODS)。
+  "qrLogin",
 ];
 // 与 backend/src/plugins/host.ts 的 KNOWN_PERMISSIONS 保持一致。
 const KNOWN_PERMISSIONS = [
@@ -66,6 +69,8 @@ const CAP_METHODS = {
   localPlatformRecommend: ["runDailyJob", "recommendLocal"],
   playlistCleanup: ["runDailyJob"],
   playlistSync: ["runSyncJob"],
+  // 交互能力(T05):扫码登录三方法,与 backend sandbox.ts CAP_METHODS.qrLogin 一致。
+  qrLogin: ["startBind", "pollBind", "cancelBind"],
   // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
 };
 

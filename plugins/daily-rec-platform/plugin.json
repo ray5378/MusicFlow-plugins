@@ -1,11 +1,11 @@
 {
   "id": "daily-rec-platform",
   "name": "QQ音乐，网易云音乐账号每日推荐",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "recommender",
-  "description": "拉取网易云音乐与 QQ 音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ 官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
+  "description": "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
   "capabilities": ["qrLogin", "search", "recommendPlaylist"],
-  "minAppVersion": "4.3.1",
+  "minAppVersion": "4.3.2",
   "longRunning": {
     "runDailyJob": 300000
   },
@@ -13,27 +13,34 @@
   "defaultEnabled": false,
   "author": "ray5378",
   "homepage": "https://github.com/ray5378/MusicFlow-plugins",
-  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/daily-rec-platform-v1.0.1/daily-rec-platform.tar.gz",
+  "downloadUrl": "https://github.com/ray5378/MusicFlow-plugins/releases/download/daily-rec-platform-v1.1.0/daily-rec-platform.tar.gz",
   "configSchema": [
     {
-      "key": "bind",
-      "label": "扫码登录绑定账号",
+      "key": "bindNetease",
+      "label": "绑定网易云音乐账号",
       "type": "action",
       "action": "startBind",
-      "help": "点击后弹出二维码：使用「绑定平台」所选的 App 扫码确认，成功后弹窗自动关闭。两平台各绑定一次即可。"
+      "args": { "platform": "netease" },
+      "group": "bind",
+      "help": "点击后弹出网易云登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
     },
     {
-      "key": "bindPlatform",
-      "label": "绑定平台",
-      "type": "select",
-      "required": true,
-      "options": [
-        { "value": "netease", "label": "网易云音乐" },
-        { "value": "qq", "label": "QQ 音乐" }
-      ],
-      "default": "netease",
+      "key": "bindQQ",
+      "label": "绑定QQ音乐账号",
+      "type": "action",
+      "action": "startBind",
+      "args": { "platform": "qq" },
       "group": "bind",
-      "help": "「扫码登录」按钮使用的平台。如需两平台都用，先选网易云绑定一次，再切到 QQ 音乐绑定一次。"
+      "help": "点击后弹出 QQ 音乐登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
+    },
+    {
+      "key": "bindKugou",
+      "label": "绑定酷狗音乐账号",
+      "type": "action",
+      "action": "startBind",
+      "args": { "platform": "kugou" },
+      "group": "bind",
+      "help": "点击后弹出酷狗登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
     },
     {
       "key": "l2Enabled",
@@ -44,30 +51,34 @@
       "help": "本地库未命中的歌曲尝试经跨插件在线源补全（需已启用至少一个音源插件，且按专辑+时长四维门禁核实）。关闭时生成外部占位条目，由后端 auto-match 兜底。"
     }
   ],
-  "documentation": "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（每天新建带日期 id）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「扫码登录绑定账号」弹出二维码：网易云为登录链接（由服务端渲染成二维码）、QQ 音乐为官方二维码图。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
+  "documentation": "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（每天新建带日期 id）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别弹出对应平台的二维码（网易云为登录链接由服务端渲染成二维码，QQ/酷狗为官方二维码图）。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
   "i18n": {
     "en": {
-      "name": "Daily Recommendations (QQ/NetEase)",
-      "description": "Fetches personal Daily Recommendations from NetEase Cloud Music and QQ Music, matches them strictly against the local library, and produces 2 playlists per platform (dated daily + rolling 7-day history). Supports QR-code login binding; credentials stay in host.storage with fingerprint-only logs. Source selection enforces the library-match gate before optional cross-plugin online completion (album+duration passed through); never builds online stream URLs itself.",
+      "name": "Daily Recommendations (QQ/NetEase/KuGou)",
+      "description": "Fetches personal Daily Recommendations from NetEase Cloud Music, QQ Music and KuGou Music, matches them strictly against the local library, and produces 2 playlists per platform (dated daily + rolling 7-day history). Supports QR-code login binding; credentials stay in host.storage with fingerprint-only logs. Source selection enforces the library-match gate before optional cross-plugin online completion (album+duration passed through); never builds online stream URLs itself.",
       "groups": {
         "bind": "Account Binding",
         "match": "Matching"
       },
       "fields": {
-        "bind": {
-          "label": "Bind account via QR code",
-          "help": "Click to open a QR code: scan with the app selected in 'Bind platform'. The dialog closes automatically after confirmation. Bind each platform once."
+        "bindNetease": {
+          "label": "Bind NetEase Cloud Music account",
+          "help": "Click to open the NetEase login QR code; scan and confirm to bind. The dialog shows the current binding status."
         },
-        "bindPlatform": {
-          "label": "Bind platform",
-          "help": "Platform used by the 'Bind account' button. To use both, bind NetEase first, then switch to QQ Music and bind again."
+        "bindQQ": {
+          "label": "Bind QQ Music account",
+          "help": "Click to open the QQ Music login QR code; scan and confirm to bind. The dialog shows the current binding status."
+        },
+        "bindKugou": {
+          "label": "Bind KuGou Music account",
+          "help": "Click to open the KuGou login QR code; scan and confirm to bind. The dialog shows the current binding status."
         },
         "l2Enabled": {
           "label": "Online completion for unmatched",
           "help": "Try cross-plugin online sources for unmatched songs (requires at least one enabled source plugin; verified by the album+duration gate). When off, external placeholder entries are written and the backend auto-match takes over."
         }
       },
-      "documentation": "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (new dated id every day)\n- History: union of the last 7 days, deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server, QQ Music shows the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
+      "documentation": "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music / KuGou Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (new dated id every day)\n- History: union of the last 7 days, deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server; QQ Music and KuGou Music show the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
     }
   }
 }

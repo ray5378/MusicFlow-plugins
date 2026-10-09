@@ -34,10 +34,10 @@ var PLATFORMS = {
     slug: "netease",
     extPrefix: "wy", // externalSongId 前缀(wy:123456)
     routes: {
-      qrKey: "/login/qrcode/unikey", // weapi POST {type:1} → unikey
-      qrCheck: "/login/qrcode/client/login", // weapi POST {key,type:1} → 800/801/802/803
+      qrKey: "/login/qrcode/unikey", // go:interface 域纯 form POST {type:3}(弃 weapi+type:1,确认后 8821)
+      qrCheck: "/login/qrcode/client/login", // go:interface 域纯 form POST {key,type:3} → 800/801/802/803
       daily: "/recommend/songs", // weapi POST → data.dailySongs[](主接口,日推单曲)
-      authProbe: "/api/w/nuser/account/get", // 运行时有效性检测:account != null 才算已登录
+      authProbe: "/nuser/account/get", // 运行时有效性检测(go 蓝本 weapi/nuser/account/get;误带 /api/w 前缀 240 真机报 8821)
       refresh: null, // ⚠️ 无刷新通道:token/refresh 无法复活过期会话,不做
       history: null // P1 R12(网易云有,QQ 侧无;首发不接)
     },
@@ -71,33 +71,77 @@ var PLATFORMS = {
     credTtlSec: 259200, // 3 天(代码实证)
     refreshAheadSec: 43200, // 到期前 ~12h 静默刷新
     homeUrl: "https://y.qq.com/"
+  },
+  kugou: {
+    label: "酷狗音乐",
+    slug: "kugou",
+    extPrefix: "kg",
+    routes: {
+      qrKey: "/v2/qrcode", // web 签名 GET(appid=1001)→ data.qrcode + data.qrcode_img
+      qrCheck: "/v2/get_userinfo_qrcode", // web 签名 GET(status 0/1/2/4)
+      daily: "/everyday_song_recommend", // android 签名 POST(gateway x-router)
+      authProbe: "/v7/get_all_list", // 运行时有效性检测(cloudlist,status===1)
+      refresh: null,
+      history: null
+    },
+    apiBase: KG_GATEWAY,
+    playlistPrefix: "pl-daily-rec-kugou-",
+    historyId: "pl-daily-rec-kugou-history",
+    qrUrlTpl: "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode={key}",
+    qrTtlSec: 120, // 官方 h5 页口径;轮询 3s
+    pollIntervalMs: 3000,
+    credTtlSec: null, // 禁预设 TTL,运行时探测定性
+    homeUrl: "https://www.kugou.com/"
   }
 };
 
-var PLATFORM_ORDER = ["netease", "qq"];
+var PLATFORM_ORDER = ["netease", "qq", "kugou"];
 
 // ============================== §2 ROUTES(常量) ==============================
 // QQ musicu.fcg 模块/方法。⚠️ 模块名与码值需真机联调校准;保持集中定义便于一处改。
 
 var QQ_FCG_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg";
 var QQ_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MusicFlow-Plugin/1.0";
-var QQ_QR_KEY_MODULE = { module: "music.Login.QrCodeLoginCgiService", method: "QrGetLoginQrCode" };
-var QQ_QR_CHECK_MODULE = { module: "music.Login.QrCodeLoginCgiService", method: "QrCheckLoginQrCode" };
+// ===== QQ ptlogin2 扫码通道(go-music-dl login.go 权威蓝本,230 实测可用) =====
+// 旧 musicu QrCodeLoginCgiService 通道服务端 403/500001 风控,弃用;musicu 仅
+// 保留用于登录后的日推/歌单/搜索接口。
+var QQ_PT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+// doQQRequest(go 蓝本):check_sig 逐跳/authorize/QQLogin 统一 Chrome/126 UA + Accept */*。
+var QQ_OAUTH_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36";
+var QQ_PT_RESTRICTED_MSG = "QQ 音乐登录服务对本服务器网络受限(风控拦截)，无法完成请求。建议：将 MusicFlow 部署于住宅/家宽网络，或在系统设置→网络代理配置可用代理后重试。该错误与二维码过期无关。";
+var QQ_OAUTH_LOGIN_JUMP = "https://graph.qq.com/oauth2.0/login_jump";
+var QQ_OAUTH_AUTHORIZE_URL = "https://graph.qq.com/oauth2.0/authorize";
+var QQ_OAUTH_CLIENT_ID = "100497308";
+var QQ_OAUTH_SCOPE = "get_user_info";
+var QQ_OAUTH_REDIRECT_URI = "https://y.qq.com/portal/wx_redirect.html?login_type=1&surl=" + encodeURIComponent("https://y.qq.com/");
+var QQ_XLOGIN_URL = "https://xui.ptlogin2.qq.com/cgi-bin/xlogin?appid=716027609&daid=383&style=33&login_text=%E7%99%BB%E5%BD%95&hide_title_bar=1&hide_border=1&target=self&s_url=" + encodeURIComponent(QQ_OAUTH_LOGIN_JUMP) + "&pt_3rd_aid=" + QQ_OAUTH_CLIENT_ID + "&pt_feedback_link=https%3A%2F%2Fsupport.qq.com%2Fproducts%2F77942%3FcustomInfo%3D.appid" + QQ_OAUTH_CLIENT_ID + "&theme=2&verify_theme=";
+var QQ_QRSHOW_URL = "https://xui.ptlogin2.qq.com/ssl/ptqrshow?appid=716027609&e=2&l=M&s=3&d=72&v=4&daid=383&pt_3rd_aid=" + QQ_OAUTH_CLIENT_ID + "&u1=" + encodeURIComponent(QQ_OAUTH_LOGIN_JUMP) + "&t=";
+var QQ_QRCHECK_URL = "https://xui.ptlogin2.qq.com/ssl/ptqrlogin";
+// ===== 酷狗(KuGouMusicApi util 蓝本逐行对齐) =====
+var KG_WEB_SALT = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt";
+var KG_ANDROID_SALT = "OIlwieks28dk2k092lksi2UIkp";
+var KG_GATEWAY = "https://gateway.kugou.com";
+var KG_UA = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+var KG_MID = "334689572176563962868706300678062568191";
+var KG_QR_BASE = "https://login-user.kugou.com";
 var QQ_DAILY_MODULE = { module: "music.scheduledDailysong.PlayInfoService", method: "get_scheduled_dailysong" };
 var QQ_PLAYLIST_DETAIL_MODULE = { module: "music.musichallSong.PlaylistInfoServer", method: "GetPlaylistInfo" };
 var QQ_SEARCH_MODULE = { module: "music.search.SearchCgiService", method: "DoSearchForQQMusicDesktop" };
 var NET_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MusicFlow-Plugin/1.0";
 
 // 网易云轮询码值(实测主流值):800=过期 801=等待扫码 802=已扫码待确认 803=已确认。
-// QQ 轮询码值:设计文档口径 801 waiting / 802 expired / 803 scanned,成功按 0 处理
-// (⚠️ 待真机钉死后在 QR_STATE_MAP 单点修改)。
+// QQ ptqrlogin 码值(ptuiCB 第1参):0=确认 65=过期 66=待扫 67=已扫待确认 68=拒绝。
 var NET_QR_STATE = { 800: "expired", 801: "waiting", 802: "scanned", 803: "confirmed" };
-var QQ_QR_STATE = { 0: "confirmed", 801: "waiting", 802: "expired", 803: "scanned" };
+var QQ_QR_STATE = { 0: "confirmed", 65: "expired", 66: "waiting", 67: "scanned", 68: "refused" };
+// 酷狗 /v2/get_userinfo_qrcode data.status:0=过期 1=待扫 2=待确认 4=成功(返回 token)。
+var KG_QR_STATE = { 0: "expired", 1: "waiting", 2: "scanned", 4: "confirmed" };
 
-// 网易云 qrCheck 候选路由(R4 校准点):平台历史上有多个形态,启动后逐个探测,
-// 命中(返回 800/801/802/803)即缓存到 storage「routeok:netease:qrCheck」,
-// 后续直接复用 —— 不靠猜,靠实测钉死。
-var NET_QR_CHECK_CANDIDATES = ["/login/qrcode/client/login", "/login/qrcode/client_login", "/login/qr/check"];
+// 网易云二维码两接口(go netease/login.go 逐参数口径):interface.music.163.com 纯 form POST。
+// ⚠️ 弃用 weapi+type:1:该通道与 App 端 client login 不匹配,手机确认后服务端回
+// 8821(二维码已被使用)而非 803 —— 240 真机第三轮实锤。form+type:3 与 go-music-dl 生产链一致。
+var NET_QR_KEY_URL = "https://interface.music.163.com/api/login/qrcode/unikey";
+var NET_QR_CHECK_URL = "https://interface.music.163.com/api/login/qrcode/client/login";
+var NET_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152";
 
 // ================================ §3 Utils ================================
 
@@ -167,6 +211,68 @@ function utils_splitArtists(artist) {
 
 function utils_titleCase(s) {
   return String(s || "").replace(/(^|\s)([a-z])/g, function (_, w, c) { return w + c.toUpperCase(); });
+}
+
+// QQ ptqrtoken:hash33(qrsig),起点 0(go 蓝本 hash33 逐行对齐;每迭代 &0x7fffffff)。
+function utils_hash33(s) {
+  var h = 0;
+  for (var i = 0; i < s.length; i++) {
+    h += (h << 5) + s.charCodeAt(i);
+    h &= 0x7fffffff;
+  }
+  return h;
+}
+
+// QQ oauth2.0 g_tk:gtk33(p_skey),起点 5381(go 蓝本 gtk33 逐行对齐)。
+function utils_gtk33(s) {
+  var h = 5381;
+  for (var i = 0; i < s.length; i++) {
+    h += (h << 5) + s.charCodeAt(i);
+    h &= 0x7fffffff;
+  }
+  return h;
+}
+
+/** 相对 Location → 绝对 URL(go resolveQQURL 简化版)。 */
+function utils_absUrl(base, loc) {
+  var l = String(loc || "").trim();
+  if (!l) return "";
+  if (/^https?:\/\//i.test(l)) return l;
+  if (l.indexOf("//") === 0) return "https:" + l;
+  var m = String(base || "").match(/^https?:\/\/[^\/]+/);
+  return (m ? m[0] : "") + (l.charAt(0) === "/" ? l : "/" + l);
+}
+
+/** host.http 响应的 Set-Cookie(核心合并串)解析进 jar(name→value,丢弃属性段)。 */
+function utils_parseCookies(res, jar) {
+  var h = (res && res.headers) || {};
+  var sc = h["set-cookie"] || h["Set-Cookie"] || "";
+  var pairs = String(sc).match(/[^\s=;,]+=[^;,]*/g) || [];
+  for (var i = 0; i < pairs.length; i++) {
+    var kv = pairs[i].split("=");
+    var val = kv.length > 1 ? kv.slice(1).join("=").trim() : "";
+    // 空值(删除型 Set-Cookie,如后续跳点回发的 p_skey=;)不得覆盖已收集的有效值
+    // ——平铺 jar 无域隔离,QQ check_sig 一跳多枚 cookie + 后续删除 cookie 会把
+    // p_skey 冲成空串(240 真机:jar keys 明明有 p_skey 却判「未取得」)。
+    if (kv[0] && val !== "") jar[kv[0].trim()] = val;
+  }
+  return jar;
+}
+
+/** cookie jar → Cookie 头串(空值跳过)。 */
+function utils_jarHeader(jar) {
+  var out = [];
+  for (var k in jar) if (Object.prototype.hasOwnProperty.call(jar, k) && jar[k] !== "") out.push(k + "=" + jar[k]);
+  return out.join("; ");
+}
+
+/** UUID v4(Math.random 版,go qqUUID 简化;oauth authorize ui 参数用)。 */
+function utils_uuid() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    var r = (Math.random() * 16) | 0;
+    var v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 // ========================= §4b CryptoOrchestrator ==========================
@@ -268,6 +374,20 @@ function CryptoOrchestrator(host) {
     var b64Part = String(b64).replace(/[\/+=]/g, "");
     return ("zzc" + part1 + b64Part + part2).toLowerCase();
   };
+
+  // ===== 酷狗签名(KuGouMusicApi util/helper.js 逐行对齐:
+  // web=先 map 后 sort;android=先 sort 后 map,data 为 JSON body) =====
+  this.kgSignWeb = function (params) {
+    var parts = Object.keys(params).map(function (k) { return k + "=" + params[k]; }).sort().join("");
+    return prim(host.crypto.md5(KG_WEB_SALT + parts + KG_WEB_SALT), "kgSignWeb.md5");
+  };
+
+  this.kgSignAndroid = function (params, dataText) {
+    var parts = Object.keys(params).sort().map(function (k) {
+      return k + "=" + (params[k] && typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]);
+    }).join("");
+    return prim(host.crypto.md5(KG_ANDROID_SALT + parts + (dataText || "") + KG_ANDROID_SALT), "kgSignAndroid.md5");
+  };
 }
 
 // ============================ §4 UpstreamClient ============================
@@ -281,6 +401,8 @@ function UpstreamClient(host, crypto) {
     if (status === 404) return errOf("ROUTE_NOT_FOUND", "网易云路由 404");
     var code = body && body.code;
     if (code === 301 || code === 302 || code === 512) return errOf("AUTH_EXPIRED", "网易云凭据失效(code " + code + ")");
+    // 8821(240 真机):二维码已被使用/失效——按过期收口给刷新按钮,不当业务错误循环报。
+    if (code === 8821) return errOf("QR_EXPIRED", "二维码已失效或已被使用，请刷新后重新扫码");
     // 800/801/802/803 = qrCheck 轮询码值,不是业务错误,放行给 pollBind 解读。
     if (NET_QR_STATE[code]) return null;
     if (code !== 200 && code !== undefined && code !== 0) {
@@ -346,6 +468,34 @@ function UpstreamClient(host, crypto) {
     });
   };
 
+  /** 网易云二维码专用:纯 form POST(go 蓝本口径,无加密无 cookie,interface.music.163.com)。
+   *  返回 {json, setCookie, status} 或抛 {__err}。 */
+  this.neteaseFormPost = function (url, params) {
+    var p = params || {};
+    var parts = [];
+    for (var k in p) parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(String(p[k])));
+    return host.http(url, {
+      method: "POST", redirect: "manual", timeout: 15000,
+      headers: {
+        "User-Agent": NET_DESKTOP_UA,
+        "Referer": "http://music.163.com/",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: parts.join("&")
+    }).then(function (res) {
+      var text = String(res.body || "");
+      var json = null;
+      try { json = JSON.parse(text); } catch (e2) { json = null; }
+      if (res.status !== 200 || !json) {
+        throw { __err: true, code: "UPSTREAM_ERROR", message: "网易云二维码接口异常(" + res.status + "): " + text.slice(0, 120) };
+      }
+      return { json: json, setCookie: collectCookies(res), status: res.status };
+    }, function (e2) {
+      if (e2 && e2.__err) throw e2;
+      throw errOf("NETWORK", "网易云二维码请求失败: " + ((e2 && e2.message) || e2));
+    });
+  };
+
   /** QQ musicu.fcg(ag-1 加密请求体 + zzcSign 查询签名)。 */
   this.qqPost = function (reqBody, cookie) {
     var bodyText = JSON.stringify(reqBody);
@@ -368,6 +518,13 @@ function UpstreamClient(host, crypto) {
       body: encBody,
       timeout: 15000
     }).then(function (res) {
+      // 风控/受限网络:403(ptlogin2/网关层拦截)与明文 500001(musicu 网关拒收)
+      // 单独归类,给部署建议文案,绝不误报为「二维码过期」。
+      if (res.status === 403) throw errOf("NETWORK_RESTRICTED", "QQ 音乐登录服务对本服务器网络受限(风控拦截)，无法完成请求。建议：将 MusicFlow 部署于住宅/家宽网络，或在系统设置→网络代理配置可用代理后重试。该错误与二维码过期无关。");
+      var bodyText = typeof res.body === "string" ? res.body : "";
+      if (bodyText.indexOf('"code":500001') !== -1 || bodyText.indexOf('"code": 500001') !== -1) {
+        throw errOf("NETWORK_RESTRICTED", "QQ 音乐登录服务对本服务器网络受限(风控拦截)，无法完成请求。建议：将 MusicFlow 部署于住宅/家宽网络，或在系统设置→网络代理配置可用代理后重试。该错误与二维码过期无关。");
+      }
       if (!res.ok || !res.body) {
         var err = classifyQQ(res.status, res.body);
         if (err) throw err;
@@ -398,6 +555,99 @@ function UpstreamClient(host, crypto) {
     return this.qqPost(body, cookie);
   };
 
+  /** 酷狗 web 签名 GET(login-user.kugou.com 直连,明文 JSON)。
+   *  extraParams 与默认参数合并后整体参与签名(蓝本 request.js/defaultParams)。 */
+  this.kugouWebGet = function (path, extraParams, appid) {
+    var p = {
+      dfid: "-", mid: KG_MID, uuid: "-",
+      appid: appid || 1005, clientver: 20489,
+      clienttime: Math.floor(Date.now() / 1000)
+    };
+    var k;
+    for (k in (extraParams || {})) p[k] = extraParams[k];
+    var flat = {};
+    for (k in p) flat[k] = String(p[k]);
+    var sig;
+    try { sig = crypto.kgSignWeb(flat); } catch (e) {
+      return Promise.reject(errOf("NETWORK", "酷狗签名失败: " + ((e && e.message) || e)));
+    }
+    p.signature = sig;
+    var qs = [];
+    for (k in p) qs.push(encodeURIComponent(k) + "=" + encodeURIComponent(p[k]));
+    var url = KG_QR_BASE + path + "?" + qs.join("&");
+    return host.http(url, {
+      method: "GET", timeout: 15000,
+      headers: {
+        "User-Agent": KG_UA, dfid: "-", clienttime: String(p.clienttime), mid: KG_MID,
+        "kg-rc": "1", "kg-thash": "5d816a0", "kg-rec": "1",
+        "kg-rf": "B9EDA08A64250DEFFBCADDEE00F8F25F"
+      }
+    }).then(function (res) {
+      var json = null;
+      try { json = JSON.parse(res.body); } catch (e) { json = null; }
+      if (res.status !== 200 || !json) {
+        throw errOf("UPSTREAM_ERROR", "酷狗响应异常(" + res.status + "): " + String(res.body || "").slice(0, 120));
+      }
+      return { json: json, status: res.status };
+    }, function (e) {
+      if (e && e.__err) throw e;
+      throw errOf("NETWORK", "酷狗请求失败: " + ((e && e.message) || e));
+    });
+  };
+
+  /** 酷狗 android 签名 POST(gateway.kugou.com + x-router,明文 JSON)。
+   *  opts:{path, router, params?, data?(对象→JSON body), cred?(token/userid 注入默认参数) }。 */
+  this.kugouPost = function (opts) {
+    var cred = (opts && opts.cred) || {};
+    var ct = Math.floor(Date.now() / 1000);
+    var p = {
+      dfid: "-", mid: KG_MID, uuid: "-", appid: 1005,
+      clientver: 20489, clienttime: ct
+    };
+    if (cred.token) p.token = cred.token;
+    if (cred.userid && String(cred.userid) !== "0") p.userid = String(cred.userid);
+    var k;
+    for (k in ((opts && opts.params) || {})) p[k] = opts.params[k];
+    var dataText = (opts && opts.data && typeof opts.data === "object") ? JSON.stringify(opts.data) : String((opts && opts.data) || "");
+    var flat = {};
+    for (k in p) flat[k] = String(p[k]);
+    var sig;
+    try { sig = crypto.kgSignAndroid(flat, dataText); } catch (e) {
+      return Promise.reject(errOf("NETWORK", "酷狗签名失败: " + ((e && e.message) || e)));
+    }
+    p.signature = sig;
+    var qs = [];
+    for (k in p) qs.push(encodeURIComponent(k) + "=" + encodeURIComponent(p[k]));
+    var url = KG_GATEWAY + ((opts && opts.path) || "") + "?" + qs.join("&");
+    var headers = {
+      "User-Agent": KG_UA, dfid: "-", clienttime: String(ct), mid: KG_MID,
+      "kg-rc": "1", "kg-thash": "5d816a0", "kg-rec": "1",
+      "kg-rf": "B9EDA08A64250DEFFBCADDEE00F8F25F"
+    };
+    if (opts && opts.router) headers["x-router"] = opts.router;
+    if (dataText) headers["Content-Type"] = "application/json";
+    return host.http(url, {
+      method: "POST", timeout: 20000, headers: headers,
+      body: dataText || ""
+    }).then(function (res) {
+      if (res.status === 403) throw errOf("NETWORK_RESTRICTED", "酷狗网关拒绝(403),当前网络可能受限");
+      var json = null;
+      try { json = JSON.parse(res.body); } catch (e) { json = null; }
+      if (!json) {
+        throw errOf("UPSTREAM_ERROR", "酷狗响应非 JSON(" + res.status + "): " + String(res.body || "").slice(0, 120));
+      }
+      var st = Number(json.status);
+      var ec = json.error_code === undefined ? 0 : Number(json.error_code);
+      if (st !== 1 || ec !== 0) {
+        throw errOf("UPSTREAM_ERROR", "酷狗业务错误(status=" + json.status + ", error_code=" + json.error_code + "): " + String(json.error || json.errmsg || "").slice(0, 120));
+      }
+      return { json: json, status: res.status };
+    }, function (e) {
+      if (e && e.__err) throw e;
+      throw errOf("NETWORK", "酷狗请求失败: " + ((e && e.message) || e));
+    });
+  };
+
   /** 启动路由自检:逐个 GET 探测(HEAD 语义不保证),404 记录。 */
   this.selfCheck = function () {
     var results = [];
@@ -410,7 +660,8 @@ function UpstreamClient(host, crypto) {
     };
     var jobs = [
       probe(PLATFORMS.netease.apiBase + "/weapi" + PLATFORMS.netease.routes.qrKey),
-      probe(PLATFORMS.qq.apiBase + QQ_FCG_URL.replace(PLATFORMS.qq.apiBase, ""))
+      probe(PLATFORMS.qq.apiBase + QQ_FCG_URL.replace(PLATFORMS.qq.apiBase, "")),
+      probe(KG_QR_BASE + "/v2/qrcode")
     ];
     return Promise.all(jobs).then(function (rs) {
       for (var i = 0; i < rs.length; i++) {
@@ -441,7 +692,7 @@ function CredentialStore(host) {
   };
 
   this.fingerprint = function (cred) {
-    return utils_fp(cred && (cred.cookie || cred.musickey || ""));
+    return utils_fp(cred && (cred.cookie || cred.musickey || cred.token || ""));
   };
 
   this.listBound = function () {
@@ -475,6 +726,25 @@ function SessionGuard(host, upstream, store) {
     ).then(function (r) {
       var data = r.json && r.json.req_0 && r.json.req_0.data;
       return { ok: !!(data && !data.err), account: data || null };
+    });
+  }
+
+  /** 酷狗探针:cloudlist /v7/get_all_list(status===1 且无错误码才算有效)。 */
+  function probeKugou(cred) {
+    return upstream.kugouPost({
+      path: "/v7/get_all_list",
+      router: "cloudlist.service.kugou.com",
+      params: { plat: 1 },
+      data: {
+        userid: Number(cred.userid) || 0,
+        token: cred.token || "",
+        total_ver: 979, type: 2, page: 1, pagesize: 30
+      },
+      cred: cred
+    }).then(function (r) {
+      var j = r.json || {};
+      var ok = j.status === 1 && (j.error_code === undefined || Number(j.error_code) === 0);
+      return { ok: !!ok, account: (j.data && j.data.info) || null };
     });
   }
 
@@ -517,7 +787,9 @@ function SessionGuard(host, upstream, store) {
 
   this.probe = function (platform, cred) {
     if (!cred) return Promise.resolve({ ok: false, reason: "UNBOUND" });
-    return platform === "netease" ? probeNetease(cred) : probeQQ(cred);
+    if (platform === "netease") return probeNetease(cred);
+    if (platform === "kugou") return probeKugou(cred);
+    return probeQQ(cred);
   };
 
   this.ensureValid = function (platform, cred) {
@@ -533,17 +805,252 @@ function SessionGuard(host, upstream, store) {
         return probeQQ(r.cred).then(function (p) {
           if (p.ok) return { ok: true, cred: r.cred, refreshed: r.refreshed };
           // 刷新失败不立即判死:返回 AUTH_EXPIRED 交上层诊断。
-          return { ok: false, code: "AUTH_EXPIRED", message: "QQ 凭据已失效(探针+刷新均未恢复)" };
+          return { ok: false, code: "AUTH_EXPIRED", message: "QQ 凭据已失效，请在插件配置页重新扫码绑定" };
         });
       });
     }
+    if (platform === "kugou") {
+      return probeKugou(cred).then(function (p) {
+        if (p.ok) return { ok: true, cred: cred };
+        return { ok: false, code: "AUTH_EXPIRED", message: "酷狗凭据已失效，请在插件配置页重新扫码绑定" };
+      }, function (e) {
+        return { ok: false, code: (e && e.code) || "AUTH_UNKNOWN", message: (e && e.message) || "鉴权未知" };
+      });
+    }
     return probeNetease(cred).then(function (p) {
-      if (p.ok) return { ok: true, cred: cred };
-      return { ok: false, code: "AUTH_EXPIRED", message: "网易云凭据已失效(运行时检测 account=null)" };
     }, function (e) {
       return { ok: false, code: (e && e.code) || "AUTH_UNKNOWN", message: (e && e.message) || "鉴权未知" };
     });
   };
+}
+
+// ================ §6a QQ ptlogin2 / 酷狗 扫码协议(go/KuGouMusicApi 蓝本) ================
+
+/** 手动逐跳跟随重定向(≤maxHops),沿途合并 Set-Cookie 进 jar。
+ *  核心宿主 undici:redirect:"manual" 返回真实 302(实测),插件侧自行收链。
+ *  返回 res 并附 res.url=最终请求地址(取 code 用)。 */
+function httpFollow(host, url, init, jar, maxHops) {
+  var remaining = maxHops || 10;
+  function step(current, referer) {
+    var headers = {};
+    var src = (init && init.headers) || {};
+    for (var k in src) headers[k] = src[k];
+    var ck = utils_jarHeader(jar);
+    if (ck) headers["Cookie"] = ck;
+    if (referer) headers["Referer"] = referer;
+    var i2 = {};
+    for (var k2 in (init || {})) if (k2 !== "headers") i2[k2] = init[k2];
+    i2.headers = headers;
+    i2.redirect = "manual";
+    return host.http(current, i2).then(function (res) {
+      utils_parseCookies(res, jar);
+      var loc = res.headers && (res.headers.location || res.headers.Location);
+      if (loc && res.status >= 300 && res.status < 400 && remaining > 0) {
+        remaining--;
+        return step(utils_absUrl(current, loc), current);
+      }
+      res.url = current;
+      return res;
+    });
+  }
+  return step(url, "");
+}
+
+/** QQ ptlogin2 出码(go CreateQRLogin 逐参数对齐):
+ *  xlogin 预热(容错) → ssl/ptqrshow PNG(latin1 通道→base64) + qrsig。
+ *  返回 {imageDataUrl, qrsig, jar}。 */
+function qqPtCreate(host) {
+  var jar = {};
+  return host.http(QQ_XLOGIN_URL, {
+    method: "GET", redirect: "manual", timeout: 10000,
+    headers: { "User-Agent": QQ_PT_UA }
+  }).then(function (res) {
+    utils_parseCookies(res, jar);
+    return null;
+  }, function () {
+    return null; // 预热失败容错:无 pt_login_sig 多数场景仍可出码
+  }).then(function () {
+    var showUrl = QQ_QRSHOW_URL + (Date.now() / 1000).toFixed(6);
+    // base64 通道:latin1 字节串含 NUL 会被沙箱桥截断(PNG 头即含 0x00)。
+    return host.http(showUrl, {
+      method: "GET", redirect: "manual", timeout: 15000, encoding: "base64",
+      headers: { "User-Agent": QQ_PT_UA, Referer: "https://xui.ptlogin2.qq.com/", Cookie: utils_jarHeader(jar) }
+    });
+  }).then(function (res) {
+    if (res.status === 403) throw { __err: true, code: "NETWORK_RESTRICTED", message: QQ_PT_RESTRICTED_MSG };
+    utils_parseCookies(res, jar);
+    var png = String(res.body || "");
+    if (res.status !== 200 || png.length < 100) {
+      throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ ptqrshow 异常(" + res.status + "),base64长度=" + png.length };
+    }
+    var qrsig = jar["qrsig"] || "";
+    if (!qrsig) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ ptqrshow 未返回 qrsig" };
+    if (png.length < 100) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ ptqrshow 响应过短(" + png.length + ")" };
+    return { imageDataUrl: "data:image/png;base64," + png, qrsig: qrsig, jar: jar };
+  });
+}
+
+/** QQ 轮询(go CheckQRLogin 逐参数对齐):ptqrlogin → ptuiCB('code',…) 解析。
+ *  0=确认(交 qqPtFinish 置链) / 65=过期 / 66=待扫 / 67=已扫待确认 / 68=拒绝。 */
+function qqPtCheck(host, sess) {
+  var jar = {};
+  var sessJar = sess.jar || {};
+  for (var jk in sessJar) jar[jk] = sessJar[jk];
+  var p = {
+    u1: QQ_OAUTH_LOGIN_JUMP,
+    ptqrtoken: String(utils_hash33(sess.qrsig || "")),
+    ptredirect: "0", h: "1", t: "1", g: "1", from_ui: "1", ptlang: "2052",
+    action: "0-0-" + Date.now(),
+    js_ver: "26071711", js_type: "1",
+    login_sig: jar["pt_login_sig"] || "",
+    pt_uistyle: "40", aid: "716027609", daid: "383",
+    pt_3rd_aid: QQ_OAUTH_CLIENT_ID, pt_js_version: "c1987b96"
+  };
+  var qs = [];
+  for (var k in p) qs.push(encodeURIComponent(k) + "=" + encodeURIComponent(p[k]));
+  // go 蓝本由 cookiejar 自动附带 pt_login_sig 等会话 cookie;缺 Cookie 头会 403 风控。
+  return host.http(QQ_QRCHECK_URL + "?" + qs.join("&"), {
+    method: "GET", redirect: "manual", timeout: 15000,
+    headers: {
+      "User-Agent": QQ_PT_UA, Referer: "https://xui.ptlogin2.qq.com/",
+      Cookie: utils_jarHeader(jar)
+    }
+  }).then(function (res) {
+    if (res.status === 403) throw { __err: true, code: "NETWORK_RESTRICTED", message: QQ_PT_RESTRICTED_MSG };
+    utils_parseCookies(res, jar);
+    var text = String(res.body || "");
+    var m = text.match(/ptuiCB\('([^']*)','([^']*)','([^']*)','([^']*)','([^']*)'/);
+    if (!m) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ ptqrlogin 响应无法解析: " + text.slice(0, 120) };
+    var state = QQ_QR_STATE[Number(m[1])] || "waiting";
+    var message = m[5];
+    if (state === "confirmed") {
+      if (!m[3]) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ 确认成功但未返回置链 URL" };
+      return qqPtFinish(host, m[3], jar).then(function (cred) {
+        return { code: 800, state: "confirmed", cred: cred };
+      });
+    }
+    return {
+      code: state === "scanned" ? 803 : (state === "expired" || state === "refused") ? 802 : 801,
+      state: state === "refused" ? "expired" : state,
+      message: message || ""
+    };
+  });
+}
+
+/** QQ 置链(go completeQQMusicLogin 逐参数对齐):
+ *  ① check_sig 手动逐跳收 cookie 取 p_skey → ② oauth2.0/authorize POST
+ *  (form:g_tk=gtk33(p_skey)/auth_time=ms/ui=uuid/openapi=1010_1030) →
+ *  Location 取 code → ③ musicu.fcg QQLogin(明文 JSON)。 */
+function qqPtFinish(host, redirectUrl, jar0) {
+  var jar = {};
+  for (var k0 in jar0) jar[k0] = jar0[k0];
+  return httpFollow(host, redirectUrl, {
+    method: "GET", timeout: 15000,
+    headers: { "User-Agent": QQ_OAUTH_UA, Referer: "https://xui.ptlogin2.qq.com/" } // go 蓝本首跳 Referer;doQQRequest 口径 Chrome/126
+  }, jar, 10).then(function (res) {
+    if (res.status >= 400) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ check_sig 异常(" + res.status + ")" };
+    var pskey = jar["p_skey"] || "";
+    if (!pskey) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ 置链未取得 p_skey(jar keys: " + Object.keys(jar).join(",") + ")" };
+    host.log("qqPtFinish: check_sig 完成, p_skey 已取得(" + pskey.length + " 字符)");
+    var form = {
+      response_type: "code",
+      client_id: QQ_OAUTH_CLIENT_ID,
+      redirect_uri: QQ_OAUTH_REDIRECT_URI,
+      scope: QQ_OAUTH_SCOPE,
+      state: "state",
+      switch: "",
+      from_ptlogin: "1",
+      src: "1",
+      update_auth: "1",
+      openapi: "1010_1030",
+      g_tk: String(utils_gtk33(pskey)),
+      auth_time: String(Date.now()),
+      ui: utils_uuid()
+    };
+    var parts = [];
+    for (var f in form) parts.push(encodeURIComponent(f) + "=" + encodeURIComponent(form[f]));
+    return host.http(QQ_OAUTH_AUTHORIZE_URL, {
+      method: "POST", redirect: "manual", timeout: 15000,
+      headers: {
+        "User-Agent": QQ_OAUTH_UA, // doQQRequest 口径 Chrome/126
+        "Accept": "*/*",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://graph.qq.com",
+        "Referer": QQ_OAUTH_LOGIN_JUMP,
+        "Cookie": utils_jarHeader(jar) // go cookiejar 语义:全程携带(缺 p_skey 服务端拒)
+      },
+      body: parts.join("&")
+    }).then(function (res2) {
+      utils_parseCookies(res2, jar);
+      var loc2 = res2.headers && (res2.headers.location || res2.headers.Location);
+      if (!loc2) {
+        throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ authorize 未返回跳转(status=" + res2.status + "): " + String(res2.body || "").slice(0, 100) };
+      }
+      var finalUrl = utils_absUrl(QQ_OAUTH_AUTHORIZE_URL, loc2);
+      var cm = String(finalUrl).match(/[?&]code=([^&#]+)/);
+      if (!cm) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ authorize 跳转无 code: " + String(finalUrl).slice(0, 120) };
+      host.log("qqPtFinish: authorize 完成, code 已取得");
+      return qqPtLogin(host, jar, decodeURIComponent(cm[1]));
+    });
+  });
+}
+
+/** QQLogin musicu 明文 POST(go 蓝本) → 归一化凭据(缺 qm_keyst 即失败)。 */
+function qqPtLogin(host, jar, code) {
+  var body = JSON.stringify({
+    comm: { g_tk: 5381, platform: "yqq", ct: 24, cv: 0 },
+    req: { module: "QQConnectLogin.LoginServer", method: "QQLogin", param: { code: code } }
+  });
+  host.log("qqPtLogin: 请求 QQLogin code=" + code.slice(0, 6) + "... jar keys=[" + Object.keys(jar).join(",") + "]");
+  return host.http(QQ_FCG_URL, {
+    method: "POST", redirect: "manual", timeout: 20000,
+    headers: {
+      "User-Agent": QQ_OAUTH_UA, // doQQRequest 口径 Chrome/126
+      "Accept": "*/*",
+      "Content-Type": "application/json",
+      "Referer": "https://y.qq.com/",
+      "Origin": "https://y.qq.com",
+      "Cookie": utils_jarHeader(jar)
+    },
+    body: body
+  }).then(function (res) {
+    utils_parseCookies(res, jar);
+    var text = String(res.body || "");
+    // 原始响应留痕(真机联调期必留:req.code/req.message 是唯一排查线索)。
+    host.log("qqPtLogin: QQLogin 原始响应(" + res.status + "): " + text.slice(0, 600));
+    var json = null;
+    try { json = JSON.parse(text); } catch (e) { json = null; }
+    if (res.status !== 200 || !json) {
+      throw { __err: true, code: "UPSTREAM_ERROR", message: "QQLogin 异常(" + res.status + "): " + text.slice(0, 120) };
+    }
+    if (json.code !== 0 || (json.req && json.req.code !== 0)) {
+      throw { __err: true, code: "UPSTREAM_ERROR", message: "QQLogin 业务错误(code " + json.code + "/req " + ((json.req && json.req.code) || "?") + "): " + ((json.req && (json.req.message || json.req.msg)) || json.message || json.msg || text.slice(0, 160)) };
+    }
+    var data = (json.req && json.req.data) || {};
+    // go normalizeQQMusicCookies 口径:别名回填先行 —— data 可能只回 musickey/qqmusic_key
+    // (music-lib 亦接受 p_skey/skey 兜底),全部为空才判失败。
+    var qmKey = String(data.qm_keyst || data.qqmusic_key || data.musickey || data.music_key || jar["qm_keyst"] || jar["qqmusic_key"] || jar["musickey"] || jar["p_skey"] || jar["skey"] || "");
+    if (!qmKey) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQLogin 未返回 qm_keyst(登录失败,data keys=[" + Object.keys(data).join(",") + "])" };
+    data.qm_keyst = data.qm_keyst || qmKey;
+    // 归一化(go normalizeQQMusicCookies + qqWXLoginDataCookies):uin 回退链 +
+    // qm_keyst/qqmusic_key 互通 + 登录响应数据回填 cookie(后续 musicu 请求要带)。
+    var uin = String(data.musicid || data.musicId || data.userid || data.uin || jar["uin"] || jar["ptui_loginuin"] || jar["luin"] || "");
+    if (!jar["uin"]) jar["uin"] = uin;
+    if (!jar["musicid"]) jar["musicid"] = uin;
+    if (!jar["qm_keyst"]) jar["qm_keyst"] = qmKey;
+    if (!jar["musickey"] && (data.musickey || data.music_key)) jar["musickey"] = data.musickey || data.music_key;
+    if (!jar["qqmusic_key"]) jar["qqmusic_key"] = qmKey;
+    host.log("qqPtLogin: QQLogin 成功, qm_keyst 已取得(指纹 " + utils_fp(qmKey) + ", uin=" + utils_fp(uin) + ")");
+    return {
+      cookie: utils_jarHeader(jar),
+      musickey: data.musickey || data.music_key || qmKey,
+      refreshKey: data.refresh_key || "",
+      uin: uin,
+      nickname: String(data.nickname || "").trim(),
+      avatarUrl: data.avatar || "",
+      expiresAt: Date.now() + PLATFORMS.qq.credTtlSec * 1000
+    };
+  });
 }
 
 // ============================= §6 QrLoginService =============================
@@ -575,8 +1082,9 @@ function QrLoginService(host, upstream, store) {
     var self = this;
     return gcSessions().then(function () {
       if (platform === "netease") {
-        return upstream.neteasePost(def.routes.qrKey, { type: 1 }, "").then(function (r) {
-          var data = (r.json && (r.json.data || r.json)) || {};
+        // go CreateQRLogin:form type:3(unikey 在顶层;weapi+type:1 通道已弃,见 §2 说明)。
+        return upstream.neteaseFormPost(NET_QR_KEY_URL, { type: 3 }).then(function (r) {
+          var data = (r.json && (r.json.unikey ? r.json : (r.json.data || r.json))) || {};
           var unikey = data.unikey || data.codekey || "";
           if (!unikey) throw { __err: true, code: "UPSTREAM_ERROR", message: "网易云未返回 unikey" };
           var sessionKey = utils_randToken(24);
@@ -586,6 +1094,7 @@ function QrLoginService(host, upstream, store) {
           }).then(function () {
             return {
               kind: "url", // 由核心归一化成二维码 data URL(§14.1b)
+              platform: platform,
               value: def.qrUrlTpl.replace("{key}", encodeURIComponent(unikey)),
               ttlSec: def.qrTtlSec,
               pollIntervalMs: def.pollIntervalMs,
@@ -594,19 +1103,54 @@ function QrLoginService(host, upstream, store) {
           });
         });
       }
-      // QQ:直出 PNG dataURL → kind:'image' 透传。
-      return upstream.qqMusicu(QQ_QR_KEY_MODULE, {}, "").then(function (r) {
-        var data = (r.json && r.json.req_0 && r.json.req_0.data) || {};
-        var qrimage = data.qrimage || data.qrUrl || data.qrcode || "";
-        if (!qrimage) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ 未返回二维码图" };
+      // QQ:ptlogin2 通道(§6a,go-music-dl 蓝本)——直出 PNG dataURL → kind:'image'。
+      if (platform === "qq") {
+        return qqPtCreate(host).then(function (out) {
+          var sessionKey = utils_randToken(24);
+          return host.storage.set(SKEY(sessionKey), {
+            platform: "qq", qrsig: out.qrsig, jar: out.jar,
+            createdAt: Date.now(), expiresAt: Date.now() + def.qrTtlSec * 1000
+          }).then(function () {
+            return {
+              platform: platform,
+              kind: "image",
+              value: out.imageDataUrl,
+              ttlSec: def.qrTtlSec,
+              pollIntervalMs: def.pollIntervalMs,
+              sessionKey: sessionKey
+            };
+          });
+        });
+      }
+      // 酷狗:web 签名出码(data.qrcode key + data.qrcode_img 官方 PNG dataURL)。
+      return upstream.kugouWebGet("/v2/qrcode", {
+        type: 1, plat: 4,
+        qrcode_txt: "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=1005&",
+        srcappid: 2919
+      }, 1001).then(function (r) {
+        var data = (r.json && r.json.data) || {};
+        var key = data.qrcode || "";
+        if (!key) throw { __err: true, code: "UPSTREAM_ERROR", message: "酷狗未返回 qrcode key: " + JSON.stringify(r.json).slice(0, 120) };
         var sessionKey = utils_randToken(24);
         return host.storage.set(SKEY(sessionKey), {
-          platform: platform, key: data.qrkey || data.unikey || data.key || "",
+          platform: platform, key: key,
           createdAt: Date.now(), expiresAt: Date.now() + def.qrTtlSec * 1000
         }).then(function () {
+          var img = data.qrcode_img || "";
+          if (img) {
+            return {
+              platform: platform,
+              kind: "image",
+              value: String(img).indexOf("data:image") === 0 ? img : "data:image/png;base64," + img,
+              ttlSec: def.qrTtlSec,
+              pollIntervalMs: def.pollIntervalMs,
+              sessionKey: sessionKey
+            };
+          }
           return {
-            kind: "image",
-            value: String(qrimage).indexOf("data:image") === 0 ? qrimage : "data:image/png;base64," + qrimage,
+            platform: platform,
+            kind: "url",
+            value: def.qrUrlTpl.replace("{key}", encodeURIComponent(key)),
             ttlSec: def.qrTtlSec,
             pollIntervalMs: def.pollIntervalMs,
             sessionKey: sessionKey
@@ -624,81 +1168,80 @@ function QrLoginService(host, upstream, store) {
   /** pollBind({sessionKey}):code 800=成功 801=待扫 802=过期 803=已扫;state 文本态。 */
   this.pollBind = function (params) {
     var sessionKey = params && (params.sessionKey || params.key);
+    var polledPlatform = "?"; // 外层错误日志用(sess 在内层闭包)
     if (!sessionKey) return Promise.resolve({ code: 802, state: "expired", message: "缺少 sessionKey" });
     return host.storage.get(SKEY(sessionKey)).then(function (sess) {
       if (!sess) return { code: 802, state: "expired", message: "会话不存在或已清理" };
+      polledPlatform = sess.platform;
       if (Date.now() > sess.expiresAt) return { code: 802, state: "expired", message: "二维码已过期,请刷新" };
       var def = PLATFORMS[sess.platform];
       if (sess.platform === "netease") {
-        // 用真实 unikey 探测路由(假 key 会拿到 400 参数错误,探不中正确路由)。
-        return resolveNeteaseCheckRoute(sess.key).then(function (checkRoute) {
-          return upstream.neteasePost(checkRoute, { key: sess.key, type: 1 }, "").then(function (r) {
-            var code = r.json && r.json.code;
-            var state = NET_QR_STATE[code] || "waiting";
-            if (code === 803 || state === "confirmed") {
-              return finalizeNetease(sessionKey, sess, r).then(function (out) { return out; });
-            }
-            return { code: state === "scanned" ? 803 : state === "expired" ? 802 : 801, state: state };
+        // go CheckQRLogin:form {key,type:3} 直连 client/login(不再探测 weapi 路由)。
+        return upstream.neteaseFormPost(NET_QR_CHECK_URL, { key: sess.key, type: 3 }).then(function (r) {
+          var code = r.json && r.json.code;
+          // 8821=二维码已被使用/失效(真过期语义):与 800 同收口,停轮询出刷新按钮,
+          // 不静默 801 循环(T04c 决议保留;确认后误报 8821 的根因 weapi 通道已随 form+type:3 消除)。
+          if (code === 8821) {
+            return { code: 802, state: "expired", message: "二维码已失效或已被使用，请刷新后重新扫码" };
+          }
+          var state = NET_QR_STATE[code] || "waiting";
+          if (code === 803 || state === "confirmed") {
+            return finalizeNetease(sessionKey, sess, r);
+          }
+          return { code: state === "scanned" ? 803 : state === "expired" ? 802 : 801, state: state };
+        });
+      }
+      // QQ:ptlogin2 通道轮询(§6a)
+      if (sess.platform === "qq") {
+        return qqPtCheck(host, sess).then(function (out) {
+          if (out.state !== "confirmed") return out;
+          return host.storage.delete(SKEY(sessionKey)).then(function () {
+            return store.save("qq", out.cred).then(function () {
+              host.log("pollBind[qq] 绑定成功,凭据指纹=" + store.fingerprint(out.cred));
+              return { code: 800, state: "confirmed", account: { nickname: out.cred.nickname, avatarUrl: out.cred.avatarUrl } };
+            });
           });
         });
       }
-      // QQ
-      return upstream.qqMusicu(QQ_QR_CHECK_MODULE, { qrkey: sess.key, key: sess.key }, "").then(function (r) {
-        var data = (r.json && r.json.req_0 && r.json.req_0.data) || {};
-        var platformCode = data.code !== undefined ? data.code : (r.json && r.json.code);
-        var state = QQ_QR_STATE[platformCode] || "waiting";
-        if (state === "confirmed") {
-          var cookie = mergeQQCookie(r.setCookie, data.musickey, data.uin);
-          var cred = {
-            cookie: cookie, musickey: data.musickey || "", refreshKey: data.refresh_key || "",
-            uin: data.uin || 0, nickname: data.nickname || data.nick || "",
-            avatarUrl: data.avatar || "", expiresAt: Date.now() + def.credTtlSec * 1000
-          };
-          return host.storage.delete(SKEY(sessionKey)).then(function () {
-            return store.save("qq", cred).then(function () {
-              host.log("pollBind[qq] 绑定成功,凭据指纹=" + store.fingerprint(cred));
-              return { code: 800, state: "confirmed", account: { nickname: cred.nickname, avatarUrl: cred.avatarUrl } };
-            });
-          });
+      // 酷狗:web 签名轮询(data.status:0 过期/1 待扫/2 待确认/4 成功带 token)
+      return upstream.kugouWebGet("/v2/get_userinfo_qrcode", { plat: 4, srcappid: 2919, qrcode: sess.key }, 1005).then(function (r) {
+        var data = (r.json && r.json.data) || {};
+        var state = KG_QR_STATE[Number(data.status)] || "waiting";
+        if (state !== "confirmed") {
+          return { code: state === "scanned" ? 803 : state === "expired" ? 802 : 801, state: state };
         }
-        return { code: state === "scanned" ? 803 : state === "expired" ? 802 : 801, state: state };
+        if (!data.token) throw { __err: true, code: "UPSTREAM_ERROR", message: "酷狗确认成功但未返回 token" };
+        var cred = {
+          token: String(data.token), userid: String(data.userid || ""),
+          nickname: data.nickname || data.nickname2 || "", avatarUrl: data.avatar || data.imgpath || "",
+          expiresAt: 0 // 运行时探测定性(禁预设 TTL)
+        };
+        return host.storage.delete(SKEY(sessionKey)).then(function () {
+          return store.save("kugou", cred).then(function () {
+            host.log("pollBind[kugou] 绑定成功,凭据指纹=" + store.fingerprint(cred));
+            return { code: 800, state: "confirmed", account: { nickname: cred.nickname, avatarUrl: cred.avatarUrl } };
+          });
+        });
       });
     }).then(function (out) { return out; }, function (e) {
-      return { code: 801, state: "error", message: "轮询失败: " + ((e && (e.message || e.code)) || e) };
+      // 二维码失效类错误(QR_EXPIRED/8821):按过期收口,弹窗停轮询出刷新按钮,
+      // 避免静默 801 循环 + 错误红字一直转圈(240 真机:确认后 8821 不收敛)。
+      if (e && e.code === "QR_EXPIRED") {
+        host.log("pollBind[" + polledPlatform + "] 二维码失效: " + (e.message || ""));
+        return { code: 802, state: "expired", message: e.message || "" };
+      }
+      var msg = "轮询失败: " + ((e && (e.message || e.code)) || e);
+      // 诊断日志:真机联调期 pollBind 失败必须留痕(此前静默,240 三 bug 无从排查)。
+      host.log("pollBind[" + polledPlatform + "] 失败: " + msg);
+      return { code: 801, state: "error", message: msg };
     });
   };
 
-  /** 解析网易云 qrCheck 可用路由+参数形态:缓存命中直接复用;否则逐候选实测,
-   *  返回 800/801/802/803 视为命中并写缓存。全不中 → 回退首候选+首形态(报其错误)。
-   *  路由候选 × 参数形态(真机联调钉死后收敛,实测值存 storage)。 */
-  function resolveNeteaseCheckRoute(probeKey) {
-    var shapes = [
-      function (k) { return { key: k, type: 1 }; },
-      function (k) { return { key: k }; },
-      function (k) { return { key: k, type: 1, csrf_token: "" }; }
-    ];
-    return host.storage.get("routeok:netease:qrCheck").then(function (cached) {
-      if (cached) return cached;
-      var tryAt = function (i, j) {
-        if (i >= NET_QR_CHECK_CANDIDATES.length) return Promise.resolve(NET_QR_CHECK_CANDIDATES[0]);
-        var route = NET_QR_CHECK_CANDIDATES[i];
-        var shape = shapes[j];
-        return upstream.neteasePost(route, shape(probeKey), "").then(function (r) {
-          var code = r.json && r.json.code;
-          if (NET_QR_STATE[code]) {
-            host.log("qrCheck 路由钉死: " + route + " 形态#" + j + " (code " + code + ")");
-            return host.storage.set("routeok:netease:qrCheck", route).then(function () { return route; });
-          }
-          return j + 1 < shapes.length ? tryAt(i, j + 1) : tryAt(i + 1, 0);
-        }, function () { return j + 1 < shapes.length ? tryAt(i, j + 1) : tryAt(i + 1, 0); });
-      };
-      return tryAt(0, 0);
-    });
-  }
-
   function finalizeNetease(sessionKey, sess, checkRes) {
     var def = PLATFORMS.netease;
-    var cookie = mergeQQCookie(checkRes.setCookie, "", 0);
+    // go login.go 口径:check 成功响应 body 的 cookie 字段优先(MUSIC_U 常在此),
+    // 回落 Set-Cookie 头合并。
+    var cookie = (checkRes.json && checkRes.json.cookie) || mergeQQCookie(checkRes.setCookie, "", 0);
     return upstream.neteasePost(def.routes.authProbe, { csrf_token: "" }, cookie).then(function (pr) {
       var account = (pr.json && (pr.json.account || (pr.json.data && pr.json.data.account))) || {};
       var profile = (pr.json && (pr.json.profile || (pr.json.data && pr.json.data.profile))) || {};
@@ -714,7 +1257,8 @@ function QrLoginService(host, upstream, store) {
       });
     }, function () {
       // 探针失败仍按确认处理(cookie 已到手,运行时检测下次 runDailyJob 会定性)
-      var cred = { cookie: mergeQQCookie(checkRes.setCookie, "", 0), uin: 0, nickname: "", avatarUrl: "", expiresAt: 0 };
+      var fbCookie = (checkRes.json && checkRes.json.cookie) || mergeQQCookie(checkRes.setCookie, "", 0);
+      var cred = { cookie: fbCookie, uin: 0, nickname: "", avatarUrl: "", expiresAt: 0 };
       return host.storage.delete(SKEY(sessionKey)).then(function () {
         return store.save("netease", cred).then(function () {
           return { code: 800, state: "confirmed", account: { nickname: "", avatarUrl: "" }, message: "已确认,账号信息待下次探测" };
@@ -992,37 +1536,44 @@ function DailySnapshot(host) {
 var MANIFEST = {
   id: "daily-rec-platform",
   name: "QQ音乐，网易云音乐账号每日推荐",
-  version: "1.0.1",
+  version: "1.1.0",
   type: "recommender",
-  description: "拉取网易云音乐与 QQ 音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ 官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
+  description: "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
   capabilities: ["qrLogin", "search", "recommendPlaylist"],
-  minAppVersion: "4.3.1",
+  minAppVersion: "4.3.2",
   longRunning: { runDailyJob: 300000 },
   permissions: ["net", "storage", "crypto", "songs:read", "songs:write", "playlists:read", "playlists:write", "inter-plugin"],
   defaultEnabled: false,
   author: "ray5378",
   homepage: "https://github.com/ray5378/MusicFlow-plugins",
-  downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/daily-rec-platform-v1.0.1/daily-rec-platform.tar.gz",
+  downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/daily-rec-platform-v1.1.0/daily-rec-platform.tar.gz",
   configSchema: [
     {
-      key: "bind",
-      label: "扫码登录绑定账号",
-      type: "action",
-      action: "startBind",
-      help: "点击后弹出二维码：使用「绑定平台」所选的 App 扫码确认，成功后弹窗自动关闭。两平台各绑定一次即可。"
+      "key": "bindNetease",
+      "label": "绑定网易云音乐账号",
+      "type": "action",
+      "action": "startBind",
+      "args": { "platform": "netease" },
+      "group": "bind",
+      "help": "点击后弹出网易云登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
     },
     {
-      key: "bindPlatform",
-      label: "绑定平台",
-      type: "select",
-      required: true,
-      options: [
-        { value: "netease", label: "网易云音乐" },
-        { value: "qq", label: "QQ 音乐" }
-      ],
-      default: "netease",
-      group: "bind",
-      help: "「扫码登录」按钮使用的平台。如需两平台都用，先选网易云绑定一次，再切到 QQ 音乐绑定一次。"
+      "key": "bindQQ",
+      "label": "绑定QQ音乐账号",
+      "type": "action",
+      "action": "startBind",
+      "args": { "platform": "qq" },
+      "group": "bind",
+      "help": "点击后弹出 QQ 音乐登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
+    },
+    {
+      "key": "bindKugou",
+      "label": "绑定酷狗音乐账号",
+      "type": "action",
+      "action": "startBind",
+      "args": { "platform": "kugou" },
+      "group": "bind",
+      "help": "点击后弹出酷狗登录二维码，手机扫码确认后自动绑定；弹窗会显示当前绑定状态。"
     },
     {
       key: "l2Enabled",
@@ -1033,27 +1584,31 @@ var MANIFEST = {
       help: "本地库未命中的歌曲尝试经跨插件在线源补全（需已启用至少一个音源插件，且按专辑+时长四维门禁核实）。关闭时生成外部占位条目，由后端 auto-match 兜底。"
     }
   ],
-  documentation: "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（每天新建带日期 id）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「扫码登录绑定账号」弹出二维码：网易云为登录链接（由服务端渲染成二维码）、QQ 音乐为官方二维码图。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
+  documentation: "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（每天新建带日期 id）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别弹出对应平台的二维码（网易云为登录链接由服务端渲染成二维码，QQ/酷狗为官方二维码图）。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
   i18n: {
     en: {
-      name: "Daily Recommendations (QQ/NetEase)",
-      description: "Fetches personal Daily Recommendations from NetEase Cloud Music and QQ Music, matches them strictly against the local library, and produces 2 playlists per platform (dated daily + rolling 7-day history). Supports QR-code login binding; credentials stay in host.storage with fingerprint-only logs. Source selection enforces the library-match gate before optional cross-plugin online completion (album+duration passed through); never builds online stream URLs itself.",
+      name: "Daily Recommendations (QQ/NetEase/KuGou)",
+      description: "Fetches personal Daily Recommendations from NetEase Cloud Music, QQ Music and KuGou Music, matches them strictly against the local library, and produces 2 playlists per platform (dated daily + rolling 7-day history). Supports QR-code login binding; credentials stay in host.storage with fingerprint-only logs. Source selection enforces the library-match gate before optional cross-plugin online completion (album+duration passed through); never builds online stream URLs itself.",
       groups: { bind: "Account Binding", match: "Matching" },
       fields: {
-        bind: {
-          label: "Bind account via QR code",
-          help: "Click to open a QR code: scan with the app selected in 'Bind platform'. The dialog closes automatically after confirmation. Bind each platform once."
+        bindNetease: {
+          label: "Bind NetEase Cloud Music account",
+          help: "Click to open the NetEase login QR code; scan and confirm to bind. The dialog shows the current binding status."
         },
-        bindPlatform: {
-          label: "Bind platform",
-          help: "Platform used by the 'Bind account' button. To use both, bind NetEase first, then switch to QQ Music and bind again."
+        bindQQ: {
+          label: "Bind QQ Music account",
+          help: "Click to open the QQ Music login QR code; scan and confirm to bind. The dialog shows the current binding status."
+        },
+        bindKugou: {
+          label: "Bind KuGou Music account",
+          help: "Click to open the KuGou login QR code; scan and confirm to bind. The dialog shows the current binding status."
         },
         l2Enabled: {
           label: "Online completion for unmatched",
           help: "Try cross-plugin online sources for unmatched songs (requires at least one enabled source plugin; verified by the album+duration gate). When off, external placeholder entries are written and the backend auto-match takes over."
         }
       },
-      documentation: "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (new dated id every day)\n- History: union of the last 7 days, deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server, QQ Music shows the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
+      documentation: "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music / KuGou Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (new dated id every day)\n- History: union of the last 7 days, deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server; QQ Music and KuGou Music show the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
     }
   }
 };
@@ -1086,7 +1641,7 @@ globalThis.__mfPlugin = {
         }
       };
       var isTrackLike = function (t) {
-        return t && (t.id || t.mid || t.songId || t.songmid) && (t.name || t.title || t.songName);
+        return t && (t.id || t.mid || t.songId || t.songmid || t.mixsongid || t.songid) && (t.name || t.title || t.songName || t.songname || t.ori_audio_name);
       };
       visit(resp, 0);
       return arrays.length ? arrays[0] : [];
@@ -1104,6 +1659,17 @@ globalThis.__mfPlugin = {
           album = (t.al && t.al.name) || (t.album && t.album.name) || "";
           durationMs = t.dt || t.duration || 0;
           cover = (t.al && t.al.picUrl) || (t.album && t.album.picUrl) || "";
+        } else if (platform === "kugou") {
+          // 酷狗 everyday_song_recommend 字段形态(蓝本实测)。
+          id = t.mixsongid || t.songid || t.id;
+          title = t.songname || t.ori_audio_name || t.name || "";
+          var kSingers = t.singerinfo || [];
+          artist = Array.isArray(kSingers) && kSingers.length
+            ? kSingers.map(function (x) { return x.name; }).join("/")
+            : String(t.author_name || "");
+          album = t.album_name || (t.albuminfo && t.albuminfo.name) || "";
+          durationMs = t.climax_timelength || t.duration || 0;
+          cover = t.cover || t.sizable_cover || (t.trans_param && t.trans_param.cover) || "";
         } else {
           id = t.mid || t.songmid || t.id;
           title = t.name || t.title || t.songName || "";
@@ -1133,6 +1699,13 @@ globalThis.__mfPlugin = {
         return upstream.neteasePost(def.routes.daily, { limit: 30, total: true, csrf_token: "" }, cred.cookie)
           .then(function (r) { return rowsFrom(platform, pickSongList(r.json, platform)); });
       }
+      if (platform === "kugou") {
+        // 酷狗日推:everyday_song_recommend(android 签名,gateway + x-router)。
+        return upstream.kugouPost({
+          path: "/everyday_song_recommend", router: "everydayrec.service.kugou.com",
+          params: { platform: "ios" }, cred: cred
+        }).then(function (r) { return rowsFrom(platform, pickSongList(r.json, platform)); });
+      }
       // QQ:每日30首卡片 → tid → playlist_detail(§2 design)。卡片接口拿不到 tid 时
       // 直接返回空(空结果不写快照,不误删)。
       return upstream.qqMusicu(QQ_DAILY_MODULE, {}, cred.cookie, cred.uin).then(function (r) {
@@ -1148,9 +1721,71 @@ globalThis.__mfPlugin = {
 
     var impl = {
       // ---- qrLogin 三方法(主仓 CAP_METHODS.qrLogin / QR_ACTION_METHODS 白名单) ----
-      startBind: function (params) { return qr.startBind(params || {}); },
+      // startBind:出码后附加绑定状态回显(boundAccount/authValid)。
+      //   - 未绑定 → boundAccount=null(前端不渲染状态行);
+      //   - 探测通过 → authValid=true(昵称优先取探针新值,回落存量凭据);
+      //   - 探测判定失效 → authValid=false(明确提示重新绑定);
+      //   - 探测网络失败 ≠ 凭据失效 → authValid=null(前端只显示名字不给判定)。
+      //   探测不阻塞出码语义:任何探测异常都吞掉,二维码照常返回。
+      startBind: function (params) {
+        return qr.startBind(params || {}).then(function (payload) {
+          var plat = payload.platform || (params && params.platform) || (host.config && host.config.bindPlatform) || "netease";
+          return store.get(plat).then(function (cred) {
+            if (!cred) { payload.boundAccount = null; payload.authValid = null; return payload; }
+            var base = { nickname: cred.nickname || "", avatarUrl: cred.avatarUrl || "" };
+            return guard.probe(plat, cred).then(function (p) {
+              if (p && p.ok) {
+                var acc = p.account || {};
+                var nick = acc.nickname || (acc.profile && acc.profile.nickname) || acc.nick || base.nickname;
+                payload.boundAccount = { nickname: nick || "", avatarUrl: base.avatarUrl || "" };
+                payload.authValid = true;
+              } else {
+                payload.boundAccount = base;
+                payload.authValid = false;
+              }
+              return payload;
+            }, function () {
+              payload.boundAccount = base;
+              payload.authValid = null;
+              return payload;
+            });
+          });
+        });
+      },
       pollBind: function (params) { return qr.pollBind(params || {}); },
       cancelBind: function (params) { return qr.cancelBind(params || {}); },
+
+      // ---- status:配置页常驻绑定状态块(v4.3.2) ----
+      // 逐平台探测存量凭据(复用 SessionGuard 探针,并行);绝不抛错;
+      // 探测网络失败 ≠ 凭据失效 → valid:null(前端显示「状态未知」)。
+      status: function () {
+        var platforms = {};
+        var jobs = [];
+        for (var i = 0; i < PLATFORM_ORDER.length; i++) {
+          (function (plat) {
+            jobs.push(store.get(plat).then(function (cred) {
+              if (!cred) {
+                platforms[plat] = { bound: false, label: PLATFORMS[plat].label, nickname: "", avatarUrl: "", valid: null };
+                return;
+              }
+              var base = { bound: true, label: PLATFORMS[plat].label, nickname: cred.nickname || "", avatarUrl: cred.avatarUrl || "", valid: null };
+              return guard.probe(plat, cred).then(function (p) {
+                base.valid = !!(p && p.ok);
+                if (p && p.ok && p.account) {
+                  var acc = p.account || {};
+                  base.nickname = acc.nickname || (acc.profile && acc.profile.nickname) || acc.nick || base.nickname;
+                }
+                platforms[plat] = base;
+              }, function () {
+                platforms[plat] = base; // 探测异常:valid=null 状态未知
+              });
+            }, function () {
+              platforms[plat] = { bound: false, label: PLATFORMS[plat].label, nickname: "", avatarUrl: "", valid: null };
+            }));
+          })(PLATFORM_ORDER[i]);
+        }
+        return Promise.all(jobs).then(function () { return { platforms: platforms }; }, function () { return { platforms: platforms }; });
+      },
 
       // ---- search:平台搜索(第3级在线补全的候选源之一) ----
       search: function (config, params) {
@@ -1205,7 +1840,7 @@ globalThis.__mfPlugin = {
       test: function (config, params) {
         return store.listBound().then(function (bound) {
           if (!bound.length) {
-            return { ok: true, message: "尚未绑定任何平台。请在插件配置页点「扫码登录绑定账号」(平台由「绑定平台」下拉决定);绑定后每日刷新会自动产出歌单。" };
+            return { ok: true, message: "尚未绑定任何平台。请在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别扫码绑定;绑定后每日刷新会自动产出歌单。" };
           }
           var jobs = bound.map(function (plat) {
             return store.get(plat).then(function (cred) {
@@ -1231,6 +1866,8 @@ globalThis.__mfPlugin = {
         var lines = [];
         var anyJob = false;
         var anyDone = false;
+        var attempted = 0;   // 进入凭据校验的平台数(已绑定且当日未完成)
+        var authFailed = 0;  // 其中凭据失效数
 
         var chain = Promise.resolve();
         for (var pi = 0; pi < PLATFORM_ORDER.length; pi++) {
@@ -1242,8 +1879,10 @@ globalThis.__mfPlugin = {
                 anyJob = true;
                 return snapshot.shouldSkip(platform, dateStr, "", force).then(function (skip) {
                   if (skip) { lines.push(platform + ": 当日已完成,跳过"); return; }
+                  attempted++;
                   return guard.ensureValid(platform, cred).then(function (g) {
                     if (!g.ok) {
+                      authFailed++;
                       ctx.errorCode = g.code || "AUTH_UNKNOWN";
                       lines.push(diag.render(diag.finish(ctx)) + " — " + (g.message || ""));
                       return;
@@ -1293,6 +1932,11 @@ globalThis.__mfPlugin = {
 
         return chain.then(function () {
           if (!anyJob) return null; // 未绑定任何平台:core 层面无事可做
+          // 全部已尝试平台都因凭据失效告终 → 抛错(job.status=error,手动刷新路径
+          // 管理员直接看到重绑提示);部分成功仍走 summary 汇报逐平台明细。
+          if (attempted > 0 && authFailed === attempted) {
+            throw new Error("账号凭据已失效，请在插件配置页重新扫码绑定。详情:\n" + lines.join("\n"));
+          }
           if (!anyDone && !force) return lines.join("\n") || null;
           return lines.join("\n") || "完成";
         });

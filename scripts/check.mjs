@@ -70,7 +70,7 @@ const CAP_METHODS = {
   playlistCleanup: ["runDailyJob"],
   playlistSync: ["runSyncJob"],
   // 交互能力(T05):扫码登录三方法,与 backend sandbox.ts CAP_METHODS.qrLogin 一致。
-  qrLogin: ["startBind", "pollBind", "cancelBind"],
+  qrLogin: ["startBind", "pollBind", "cancelBind", "status"],
   // webRotation 无对应方法（核心 purge 逻辑触发，无需 impl 方法）
 };
 

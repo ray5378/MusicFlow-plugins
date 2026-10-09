@@ -6,9 +6,12 @@
   "description": "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
   "capabilities": ["qrLogin", "search", "recommendPlaylist"],
   "homePlaylistIds": [
-    { "id": "pl-daily-rec-netease-history", "name": "网易云音乐 历史日推", "showOnHomeKey": "neteaseShowOnHome", "positionKey": "neteaseHomePosition" },
-    { "id": "pl-daily-rec-qq-history", "name": "QQ 音乐 历史日推", "showOnHomeKey": "qqShowOnHome", "positionKey": "qqHomePosition" },
-    { "id": "pl-daily-rec-kugou-history", "name": "酷狗音乐 历史日推", "showOnHomeKey": "kugouShowOnHome", "positionKey": "kugouHomePosition" }
+    { "id": "pl-daily-rec-netease-today", "name": "网易云音乐 每日推荐", "showOnHomeKey": "neteaseShowOnHome", "positionKey": "neteaseHomePosition" },
+    { "id": "pl-daily-rec-qq-today", "name": "QQ 音乐 每日推荐", "showOnHomeKey": "qqShowOnHome", "positionKey": "qqHomePosition" },
+    { "id": "pl-daily-rec-kugou-today", "name": "酷狗音乐 每日推荐", "showOnHomeKey": "kugouShowOnHome", "positionKey": "kugouHomePosition" },
+    { "id": "pl-daily-rec-netease-history", "name": "网易云音乐 历史日推", "showOnHomeKey": "neteaseHistoryShowOnHome", "positionKey": "neteaseHistoryHomePosition" },
+    { "id": "pl-daily-rec-qq-history", "name": "QQ 音乐 历史日推", "showOnHomeKey": "qqHistoryShowOnHome", "positionKey": "qqHistoryHomePosition" },
+    { "id": "pl-daily-rec-kugou-history", "name": "酷狗音乐 历史日推", "showOnHomeKey": "kugouHistoryShowOnHome", "positionKey": "kugouHistoryHomePosition" }
   ],
   "minAppVersion": "4.3.2",
   "longRunning": {
@@ -57,51 +60,99 @@
     },
     {
       "key": "neteaseShowOnHome",
-      "label": "网易云历史日推显示在首页",
+      "label": "首页显示网易云每日推荐",
+      "type": "switch",
+      "default": true,
+      "group": "home",
+      "help": "开启后「网易云音乐 每日推荐」歌单固定展示在首页（歌单 id 固定，名字每日带日期更新）；位次见下一项。"
+    },
+    {
+      "key": "neteaseHomePosition",
+      "label": "网易云每日推荐首页位次",
+      "type": "number",
+      "default": 5,
+      "group": "home",
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
+    },
+    {
+      "key": "qqShowOnHome",
+      "label": "首页显示QQ音乐每日推荐",
+      "type": "switch",
+      "default": true,
+      "group": "home",
+      "help": "开启后「QQ 音乐 每日推荐」歌单固定展示在首页（歌单 id 固定，名字每日带日期更新）；位次见下一项。"
+    },
+    {
+      "key": "qqHomePosition",
+      "label": "QQ音乐每日推荐首页位次",
+      "type": "number",
+      "default": 6,
+      "group": "home",
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
+    },
+    {
+      "key": "kugouShowOnHome",
+      "label": "首页显示酷狗每日推荐",
+      "type": "switch",
+      "default": true,
+      "group": "home",
+      "help": "开启后「酷狗音乐 每日推荐」歌单固定展示在首页（歌单 id 固定，名字每日带日期更新）；位次见下一项。"
+    },
+    {
+      "key": "kugouHomePosition",
+      "label": "酷狗每日推荐首页位次",
+      "type": "number",
+      "default": 7,
+      "group": "home",
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
+    },
+    {
+      "key": "neteaseHistoryShowOnHome",
+      "label": "首页显示网易云历史日推",
       "type": "switch",
       "default": true,
       "group": "home",
       "help": "开启后「网易云音乐 历史日推」歌单固定展示在首页；位次见下一项。"
     },
     {
-      "key": "neteaseHomePosition",
+      "key": "neteaseHistoryHomePosition",
       "label": "网易云历史日推首页位次",
       "type": "number",
-      "default": 1,
+      "default": 8,
       "group": "home",
-      "help": "首页固定卡位次（1 起）；与其它首页卡占同一位次时保存会被拒绝，改用其它位次即可。"
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
     },
     {
-      "key": "qqShowOnHome",
-      "label": "QQ历史日推显示在首页",
+      "key": "qqHistoryShowOnHome",
+      "label": "首页显示QQ音乐历史日推",
       "type": "switch",
       "default": true,
       "group": "home",
       "help": "开启后「QQ 音乐 历史日推」歌单固定展示在首页；位次见下一项。"
     },
     {
-      "key": "qqHomePosition",
-      "label": "QQ历史日推首页位次",
+      "key": "qqHistoryHomePosition",
+      "label": "QQ音乐历史日推首页位次",
       "type": "number",
-      "default": 2,
+      "default": 9,
       "group": "home",
-      "help": "首页固定卡位次（1 起）；与其它首页卡占同一位次时保存会被拒绝，改用其它位次即可。"
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
     },
     {
-      "key": "kugouShowOnHome",
-      "label": "酷狗历史日推显示在首页",
+      "key": "kugouHistoryShowOnHome",
+      "label": "首页显示酷狗历史日推",
       "type": "switch",
       "default": true,
       "group": "home",
       "help": "开启后「酷狗音乐 历史日推」歌单固定展示在首页；位次见下一项。"
     },
     {
-      "key": "kugouHomePosition",
+      "key": "kugouHistoryHomePosition",
       "label": "酷狗历史日推首页位次",
       "type": "number",
-      "default": 3,
+      "default": 10,
       "group": "home",
-      "help": "首页固定卡位次（1 起）；与其它首页卡占同一位次时保存会被拒绝，改用其它位次即可。"
+      "help": "首页固定卡位次（1 起整数，越小越靠前），与其它卡同位次保存时会报错。"
     },
     {
       "key": "historyDays",
@@ -112,7 +163,7 @@
       "help": "历史日推歌单聚合最近 N 天的每日推荐快照（1-30，默认 7）；下次生成历史日推时生效。"
     }
   ],
-  "documentation": "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（每天新建带日期 id）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别弹出对应平台的二维码（网易云为登录链接由服务端渲染成二维码，QQ/酷狗为官方二维码图）。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
+  "documentation": "### 功能介绍\n拉取网易云音乐与 QQ 音乐的「每日推荐」，匹配本地音乐库后产出歌单：\n- 今日歌单：`网易云音乐/QQ音乐 每日推荐 <日期>`（歌单 id 固定不变，名字每日带日期更新）\n- 历史日推：最近 7 天并集去重（新→旧），昨日今日歌单并入历史后删除\n\n### 扫码登录\n在插件配置页点「绑定网易云音乐账号」「绑定QQ音乐账号」「绑定酷狗音乐账号」分别弹出对应平台的二维码（网易云为登录链接由服务端渲染成二维码，QQ/酷狗为官方二维码图）。扫码确认后凭据加密存于 MusicFlow 本机（host.storage），日志只显示指纹（前 6 位+长度），解绑即删。不提供密码登录。\n\n### 选源与门禁\n三级全部强制门禁：① 本地库匹配（host.songs.match，歌名/歌手/时长/专辑四维评分）→ ② WebDAV 同源 → ③（可选，默认关）跨插件在线源补全，调用时透传专辑与时长供宿主四维核实。本插件绝不自行拼接在线播放 URL。\n\n### 隐私与合规\n仅供个人自用；本插件直连平台官方接口，无任何外部中转服务。凭据只保存在你自己的 MusicFlow 实例中。",
   "i18n": {
     "en": {
       "name": "Daily Recommendations (QQ/NetEase/KuGou)",
@@ -145,31 +196,55 @@
           "help": "The history playlist aggregates daily recommendation snapshots of the last N days (1-30, default 7); takes effect on the next run."
         },
         "neteaseShowOnHome": {
+          "label": "Show NetEase daily recommendations on home",
+          "help": "Pin the NetEase daily playlist to the home page (fixed id, name carries today's date); see the next item for its position."
+        },
+        "neteaseHomePosition": {
+          "label": "NetEase daily home position",
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
+        },
+        "qqShowOnHome": {
+          "label": "Show QQ Music daily recommendations on home",
+          "help": "Pin the QQ Music daily playlist to the home page (fixed id, name carries today's date); see the next item for its position."
+        },
+        "qqHomePosition": {
+          "label": "QQ Music daily home position",
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
+        },
+        "kugouShowOnHome": {
+          "label": "Show KuGou daily recommendations on home",
+          "help": "Pin the KuGou daily playlist to the home page (fixed id, name carries today's date); see the next item for its position."
+        },
+        "kugouHomePosition": {
+          "label": "KuGou daily home position",
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
+        },
+        "neteaseHistoryShowOnHome": {
           "label": "Show NetEase history on home",
           "help": "Pin the NetEase history playlist to the home page; see the next item for its position."
         },
-        "neteaseHomePosition": {
+        "neteaseHistoryHomePosition": {
           "label": "NetEase history home position",
-          "help": "Home card position (starting at 1); saving is rejected when another home card occupies the same position."
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
         },
-        "qqShowOnHome": {
+        "qqHistoryShowOnHome": {
           "label": "Show QQ Music history on home",
           "help": "Pin the QQ Music history playlist to the home page; see the next item for its position."
         },
-        "qqHomePosition": {
+        "qqHistoryHomePosition": {
           "label": "QQ Music history home position",
-          "help": "Home card position (starting at 1); saving is rejected when another home card occupies the same position."
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
         },
-        "kugouShowOnHome": {
+        "kugouHistoryShowOnHome": {
           "label": "Show KuGou history on home",
           "help": "Pin the KuGou history playlist to the home page; see the next item for its position."
         },
-        "kugouHomePosition": {
+        "kugouHistoryHomePosition": {
           "label": "KuGou history home position",
-          "help": "Home card position (starting at 1); saving is rejected when another home card occupies the same position."
+          "help": "Home card position (integer starting at 1, smaller is higher); saving is rejected when another card occupies the same position."
         }
       },
-      "documentation": "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music / KuGou Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (new dated id every day)\n- History: union of the last N days (configurable, default 7), deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server; QQ Music and KuGou Music show the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
+      "documentation": "### Features\nFetches personal Daily Recommendations from NetEase Cloud Music / QQ Music / KuGou Music and produces playlists after strict local-library matching:\n- Daily playlist: `<Platform> Daily Recommendations <date>` (fixed playlist id; the name carries today's date and is updated daily)\n- History: union of the last N days (configurable, default 7), deduplicated (newest first); yesterday's daily playlist is merged into history then deleted\n\n### QR Login\nClick 'Bind account' in the plugin config: NetEase shows a login URL rendered as a QR by the server; QQ Music and KuGou Music show the official QR image. Credentials are stored encrypted on your own MusicFlow instance (host.storage); logs show fingerprints only (first 6 chars + length). Password login is not supported.\n\n### Source gating\nAll three tiers enforce gates: ① local library match (host.songs.match, title/artist/duration/album scoring) → ② WebDAV → ③ (optional, off by default) cross-plugin online completion passing album + duration for the host-side four-dimension verification. This plugin never builds online stream URLs itself.\n\n### Privacy\nFor personal use only; connects directly to the official platform APIs with no external relay service. Credentials never leave your MusicFlow instance."
     }
   }
 }

@@ -124,8 +124,13 @@ var KG_GATEWAY = "https://gateway.kugou.com";
 var KG_UA = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
 var KG_MID = "334689572176563962868706300678062568191";
 var KG_QR_BASE = "https://login-user.kugou.com";
-var QQ_DAILY_MODULE = { module: "music.scheduledDailysong.PlayInfoService", method: "get_scheduled_dailysong" };
-var QQ_PLAYLIST_DETAIL_MODULE = { module: "music.musichallSong.PlaylistInfoServer", method: "GetPlaylistInfo" };
+// 旧模块(scheduledDailysong / UserInfoService.GetUserBaseInfo)被模块级鉴权拒
+// (req0.code=500003 subcode=860100001,240 真机实证);日推改两步链 + 探针改
+// fcg_user_created_diss(均实证 code=0)。UA/端点照抄 lead 实测口径,勿改。
+var QQ_FCG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+var QQ_FCG_CDINFO_URL = "https://i.y.qq.com/qzone-music/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg";
+var QQ_FCG_CREATED_DISS_URL = "https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss";
+var NET_ACCOUNT_URL = "https://music.163.com/api/nuser/account/get";
 var QQ_SEARCH_MODULE = { module: "music.search.SearchCgiService", method: "DoSearchForQQMusicDesktop" };
 var NET_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MusicFlow-Plugin/1.0";
 
@@ -288,6 +293,14 @@ function utils_parseCookies(res, jar) {
   var entries = utils_splitSetCookie(sc);
   for (var i = 0; i < entries.length; i++) utils_mergeCookieEntry(entries[i], jar);
   return jar;
+}
+
+/** QQ 出站随机国内 IP 头(蓝本 utils.WithRandomIPHeader 同款意图):
+ *  X-Forwarded-For / X-Real-IP 同值。沙箱内 Math.random 可用(randSecretKey 已用)。 */
+function rndChinaIP() {
+  var prefixes = [[116, 255], [116, 228], [218, 192], [124, 0], [14, 132], [183, 14], [58, 14], [113, 116], [120, 230]];
+  var p = prefixes[Math.floor(Math.random() * prefixes.length)];
+  return p[0] + "." + p[1] + "." + (1 + Math.floor(Math.random() * 254)) + "." + (1 + Math.floor(Math.random() * 254));
 }
 
 /** cookie jar → Cookie 头串(空值跳过)。 */
@@ -538,13 +551,16 @@ function UpstreamClient(host, crypto) {
       return Promise.reject(errOf("NETWORK", "QQ 加密失败: " + ((e && e.message) || e)));
     }
     var url = QQ_FCG_URL + "?sign=" + encodeURIComponent(sign);
+    var qip = rndChinaIP();
     return host.http(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
         "User-Agent": QQ_UA,
         Referer: "https://y.qq.com/",
-        Cookie: cookie || ""
+        Cookie: cookie || "",
+        "X-Forwarded-For": qip,
+        "X-Real-IP": qip
       },
       body: encBody,
       timeout: 15000
@@ -742,21 +758,54 @@ function CredentialStore(host) {
 
 function SessionGuard(host, upstream, store) {
   /** 网易云运行时检测:account != null 才算已登录(禁预设 TTL)。 */
+  /** 网易探针:明文端点(240 真机实证)。code:200 + account/profile 齐全=有效;
+   *  code:200 + account:null 或缺 profile=明确未登录(旧凭据实证形态)→ AUTH_EXPIRED;
+   *  网络/其他业务码 → 非 AUTH_EXPIRED 抛出(上层 status 判 valid=null)。 */
   function probeNetease(cred) {
-    return upstream.neteasePost(PLATFORMS.netease.routes.authProbe, { csrf_token: "" }, cred.cookie).then(function (r) {
-      var account = r.json && ((r.json.account) || (r.json.data && r.json.data.account));
-      return { ok: !!(r.json && account != null), account: account || null };
+    return host.http(NET_ACCOUNT_URL + "?csrf_token=", {
+      method: "GET", timeout: 15000,
+      headers: { "User-Agent": NET_UA, "Referer": "https://music.163.com", "Cookie": cred.cookie || "" }
+    }).then(function (res) {
+      var json = null;
+      try { json = JSON.parse(res.body); } catch (e0) { json = null; }
+      if (!json) throw { __err: true, code: "UPSTREAM_ERROR", message: "网易云探针异常(" + res.status + "): " + String(res.body || "").slice(0, 100) };
+      var account = json.account || (json.data && json.data.account) || null;
+      var profile = json.profile || (json.data && json.data.profile) || null;
+      if (Number(json.code) === 200 && account && profile) {
+        return { ok: true, account: { id: account.id || 0, nickname: String(profile.nickname || ""), avatarUrl: String(profile.avatarUrl || "") } };
+      }
+      if (Number(json.code) === 200) throw { __err: true, code: "AUTH_EXPIRED", message: "网易云凭据已失效，请在插件配置页重新扫码绑定" };
+      throw { __err: true, code: "UPSTREAM_ERROR", message: "网易云探针业务错误(code " + json.code + ")" };
+    }, function (e1) {
+      if (e1 && e1.__err) throw e1;
+      throw { __err: true, code: "NETWORK", message: "网易云探针网络失败: " + ((e1 && e1.message) || e1) };
     });
   }
 
-  /** QQ 探针:authProbe 无凭据返回 "Auth info missing"。 */
+  /** QQ 探针:fcg_user_created_diss(240 真机实证 code=0,昵称 data.hostname="Ray";
+   *  旧 UserInfoService.GetUserBaseInfo 被模块级鉴权拒 500003)。
+   *  code=0 → 有效;code!=0 → 明确失效(AUTH_EXPIRED);网络异常 → 非 AUTH_EXPIRED
+   *  抛出(上层 status 判 valid=null 状态未知)。头像该端点无,保留存量不覆盖。 */
   function probeQQ(cred) {
-    return upstream.qqMusicu(
-      { module: "music.UserInfo.UserInfoService", method: "GetUserBaseInfo" },
-      {}, cred.cookie, cred.uin
-    ).then(function (r) {
-      var data = r.json && r.json.req_0 && r.json.req_0.data;
-      return { ok: !!(data && !data.err), account: data || null };
+    var numUin = String(cred.uin || cred.musicid || "").replace(/\D/g, "");
+    var ip = rndChinaIP();
+    return host.http(QQ_FCG_CREATED_DISS_URL + "?hostuin=" + encodeURIComponent(numUin) + "&sin=0&size=5&format=json&inCharset=utf8&outCharset=utf-8", {
+      method: "GET", timeout: 15000,
+      headers: {
+        "User-Agent": QQ_FCG_UA, "Referer": "https://y.qq.com/", "Cookie": cred.cookie || "",
+        "X-Forwarded-For": ip, "X-Real-IP": ip
+      }
+    }).then(function (res) {
+      var json = null;
+      try { json = JSON.parse(res.body); } catch (e0) { json = null; }
+      if (json && Number(json.code) === 0) {
+        var d = json.data || {};
+        return { ok: true, account: { nickname: String(d.hostname || ""), avatarUrl: "" } };
+      }
+      throw { __err: true, code: "AUTH_EXPIRED", message: "QQ 凭据已失效，请在插件配置页重新扫码绑定" };
+    }, function (e1) {
+      if (e1 && e1.__err) throw e1;
+      throw { __err: true, code: "NETWORK", message: "QQ 探针网络失败: " + ((e1 && e1.message) || e1) };
     });
   }
 
@@ -837,6 +886,8 @@ function SessionGuard(host, upstream, store) {
           if (p.ok) return { ok: true, cred: r.cred, refreshed: r.refreshed };
           // 刷新失败不立即判死:返回 AUTH_EXPIRED 交上层诊断。
           return { ok: false, code: "AUTH_EXPIRED", message: "QQ 凭据已失效，请在插件配置页重新扫码绑定" };
+        }, function (e) {
+          return { ok: false, code: (e && e.code) || "AUTH_UNKNOWN", message: (e && e.message) || "鉴权未知" };
         });
       });
     }
@@ -1095,7 +1146,7 @@ function qqPtLogin(host, jar, code) {
     return {
       cookie: utils_jarHeader(jar),
       musickey: data.musickey || data.music_key || qmKey,
-      refreshKey: data.refresh_key || "",
+      refreshKey: data.refresh_token || "", // QQLogin 实际字段是 refresh_token(旧 refresh_key 恒空)
       uin: uin,
       nickname: nick,
       avatarUrl: avatar,
@@ -1736,7 +1787,7 @@ globalThis.__mfPlugin = {
           cover = t.cover || t.sizable_cover || (t.trans_param && t.trans_param.cover) || "";
         } else {
           id = t.mid || t.songmid || t.id;
-          title = t.name || t.title || t.songName || "";
+          title = t.name || t.title || t.songName || t.songname || "";
           var singers = t.singer || t.singers || [];
           artist = Array.isArray(singers) ? singers.map(function (x) { return x.name; }).join("/") : String(singers);
           album = (t.album && (t.album.name || t.album.title)) || "";
@@ -1770,15 +1821,61 @@ globalThis.__mfPlugin = {
           params: { platform: "ios" }, cred: cred
         }).then(function (r) { return rowsFrom(platform, pickSongList(r.json, platform)); });
       }
-      // QQ:每日30首卡片 → tid → playlist_detail(§2 design)。卡片接口拿不到 tid 时
-      // 直接返回空(空结果不写快照,不误删)。
-      return upstream.qqMusicu(QQ_DAILY_MODULE, {}, cred.cookie, cred.uin).then(function (r) {
-        var data = (r.json && r.json.req_0 && r.json.req_0.data) || {};
-        var tid = data.tid || data.disssimid || (Array.isArray(data.list) && data.list[0] && (data.list[0].tid || data.list[0].id));
-        if (!tid) return [];
-        return upstream.qqMusicu(QQ_PLAYLIST_DETAIL_MODULE, { tid: tid, onlysonglist: 1 }, cred.cookie, cred.uin).then(function (r2) {
-          var d2 = (r2.json && r2.json.req_0 && r2.json.req_0.data) || {};
-          return rowsFrom(platform, pickSongList(d2.songlist ? d2 : (d2.song_list ? { songlist: d2.song_list } : d2), platform));
+      // QQ:两步链(240 真机实证,lead 2026-10-09):
+      // ① RecommendFeed.get_recommend_feed 明文 musicu → v_shelf[].v_niche[].v_card[]
+      //    找 card.title 含「每日30首」→ tid = card.id(实证字段就是 id,字符串);
+      // ② fcg_ucc_getcdinfo_byids_cp.fcg → cdlist[0].songlist → 既有选源入库不变。
+      var numUin = Number(String(cred.uin || cred.musicid || "").replace(/\D/g, "")) || 0;
+      var fip = rndChinaIP();
+      return host.http(QQ_FCG_URL, {
+        method: "POST", timeout: 15000,
+        headers: {
+          "Content-Type": "application/json", "User-Agent": QQ_FCG_UA,
+          "Referer": "https://y.qq.com/", "Cookie": cred.cookie || "",
+          "X-Forwarded-For": fip, "X-Real-IP": fip
+        },
+        body: JSON.stringify({
+          comm: { ct: 24, cv: 0, uin: numUin },
+          req_0: { module: "music.recommend.RecommendFeed", method: "get_recommend_feed", param: {} }
+        })
+      }).then(function (res) {
+        var json = null;
+        try { json = JSON.parse(res.body); } catch (e0) { json = null; }
+        var data = (json && json.req_0 && json.req_0.data) || {};
+        var shelves = data.v_shelf || [];
+        var tid = "";
+        for (var si = 0; si < shelves.length && !tid; si++) {
+          var niches = (shelves[si] && shelves[si].v_niche) || [];
+          for (var ni = 0; ni < niches.length && !tid; ni++) {
+            var cards = (niches[ni] && niches[ni].v_card) || [];
+            for (var ci = 0; ci < cards.length; ci++) {
+              var card = cards[ci] || {};
+              if (String(card.title || "").indexOf("每日30首") !== -1 && card.id) { tid = String(card.id); break; }
+            }
+          }
+        }
+        if (!tid) throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ 日推 feed 未找到每日30首卡片" };
+        var qs = [];
+        var qp = { type: 1, json: 1, utf8: 1, onlysong: 0, disstid: tid, format: "json", g_tk: 5381, loginUin: 0, hostUin: 0, inCharset: "utf8", outCharset: "utf-8", notice: 0, platform: "yqq", needNewCode: 0 };
+        for (var pk in qp) qs.push(encodeURIComponent(pk) + "=" + encodeURIComponent(qp[pk]));
+        var bip = rndChinaIP();
+        return host.http(QQ_FCG_CDINFO_URL + "?" + qs.join("&"), {
+          method: "GET", timeout: 15000,
+          headers: {
+            "User-Agent": QQ_FCG_UA, "Referer": "https://y.qq.com/", "Cookie": cred.cookie || "",
+            "X-Forwarded-For": bip, "X-Real-IP": bip
+          }
+        }).then(function (res2) {
+          var text = String(res2.body || "");
+          var lp = text.indexOf("("), rp = text.lastIndexOf(")");
+          var json2 = null;
+          try { json2 = JSON.parse(lp !== -1 && rp > lp ? text.slice(lp + 1, rp) : text); } catch (e1) { json2 = null; }
+          var cd = (json2 && json2.cdlist && json2.cdlist[0]) || null;
+          var badSub = json2 && json2.subcode !== undefined && Number(json2.subcode) !== 0;
+          if (!json2 || badSub || !cd || !cd.songlist || !cd.songlist.length) {
+            throw { __err: true, code: "UPSTREAM_ERROR", message: "QQ 日推歌单详情异常(subcode=" + ((json2 && json2.subcode) || "?") + ", songlist=" + ((cd && cd.songlist && cd.songlist.length) || 0) + ")" };
+          }
+          return rowsFrom(platform, cd.songlist);
         });
       });
     }

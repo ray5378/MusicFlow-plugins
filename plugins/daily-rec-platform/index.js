@@ -1866,10 +1866,17 @@ globalThis.__mfPlugin = {
             "X-Forwarded-For": bip, "X-Real-IP": bip
           }
         }).then(function (res2) {
-          var text = String(res2.body || "");
-          var lp = text.indexOf("("), rp = text.lastIndexOf(")");
+          var text = String(res2.body || "").trim();
+          // jsonp 剥壳只对「非 { 开头」的响应生效:纯 JSON 歌名含括号(如「(Live)」)会骗过
+          // 「首个 ( 到末个 )」切割 —— 240 真机实锤(subcode=?/songlist=0)。蓝本守卫=以 ) 结尾。
           var json2 = null;
-          try { json2 = JSON.parse(lp !== -1 && rp > lp ? text.slice(lp + 1, rp) : text); } catch (e1) { json2 = null; }
+          try {
+            if (text.charAt(0) === "{") json2 = JSON.parse(text);
+            else {
+              var lp = text.indexOf("("), rp = text.lastIndexOf(")");
+              if (lp !== -1 && rp > lp) json2 = JSON.parse(text.slice(lp + 1, rp));
+            }
+          } catch (e1) { json2 = null; }
           var cd = (json2 && json2.cdlist && json2.cdlist[0]) || null;
           var badSub = json2 && json2.subcode !== undefined && Number(json2.subcode) !== 0;
           if (!json2 || badSub || !cd || !cd.songlist || !cd.songlist.length) {

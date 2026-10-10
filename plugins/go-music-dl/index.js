@@ -18,11 +18,11 @@
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.8",
+    version: "1.6.9",
     type: "source",
     schedules: true,
     description:
-      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索(歌曲 / 歌单 / 专辑)统一按「搜索平台」配置取源(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。",
+      "三合一官方外置插件:通过局域网已部署的 go-music-dl 服务搜索全网音乐、获取推荐歌单、流式播放,并为在线歌曲提供 LRC 歌词与封面。搜索(歌曲 / 歌单 / 专辑)统一按「搜索平台」配置取源(调用方指定 → 配置 sources → 国内快速默认,国内优先 ≤5 平台),避免全平台搜索(含外网)超时。配置后台用户名/密码后,插件会每日自动登录,并把各平台「我的私人歌单」(网易云 / QQ / 酷狗 / 汽水)作为**持久歌单**同步到本地(不轮转、不被清理;经 manifest.longRunning 声明长耗时预算,单次任务即可全量同步(窗口并行拉取提速;配合主项目 v1.7.47 软看门狗批量任务无墙钟,无限歌单/封面/歌词一次跑完;歌单带**平台标签**,前端显示对应平台徽标)。支持关键词搜索自动入库:配置关键词后每日自动搜索所有平台匹配歌单并入库(已入库自动跳过)。源 / 歌词 / 封面共用同一份服务地址配置。运行于 QuickJS 沙箱。另提供 inspectSong 音质预探:仅发一次轻量 Range 探测、不下载整首,返回歌曲真实体积与真实码率,取不到可播地址返回 valid=false,任何异常一律返回 null(调用方优雅降级)。",
     capabilities: [
       "search",
       "playlistSearch",
@@ -58,7 +58,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.7/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.9/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -131,11 +131,11 @@ globalThis.__mfPlugin = { manifest: {
       ] },
     ],
   
-    documentation: "### 功能介绍\n全网音乐源聚合插件（go-music-dl 三合一）：在线搜索、每日推荐歌单、远程歌单拉取、音频流播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面三项能力合并为单个插件，共用一份服务地址配置。\n\n### 处理逻辑\n1. 核心按能力遍历启用插件：搜索走 `search`、每日推荐走 `recommend`、远程歌单走 `playlistSongs`、播放走 `stream`（`streamUrl` 构造可播地址）、歌词走 `lyricProvider`、封面走 `coverProvider`；\n2. 所有能力基于 `host.config` 里的 baseUrl 指向局域网部署的 go-music-dl 服务，由该服务完成各平台（QQ / 网易 / 酷狗 / 咪咕等）的聚合抓取与解密；\n3. 在线歌曲的过期清理（`webRotation` 能力）由核心定时器调度，按保留天数回收不再被引用的 web 歌曲与封面。\n\n### 沙箱说明\n本插件运行在 QuickJS 虚拟机内(方案 B 沙箱):代码拿不到 Node 的任何能力,网络只能通过 `host.http`(自带超时),配置经 `host.config` 实时读取;`permissions` 声明了 `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。\n\n## 配置\n- `baseUrl`（必填）：go-music-dl 网页服务地址，如 `http://192.168.1.10:18080`；\n- `sources`：搜索平台多选（默认全部）；\n- `webSongsMode` / `webSongsRetentionDays`：web 歌曲保留策略与清理天数；\n- `homeCount`：首页「平台精选」每个平台展示的歌单数（1~50，默认 6，所有平台相同）；\n- 启用后可在插件页「测试连接」验证服务可达。\n\n### 我的私人歌单（路径 B：持久、不轮转）\n配置 `username` / `password`（go-music-dl 网页后台登录凭据）并开启 `同步我的私人歌单` 后，插件会**每日自动登录**，把各平台「我的歌单」（仅网易云 / QQ / 酷狗 / 汽水，酷我 / 咪咕不支持）作为**持久本地歌单**同步（固定 id `pl-gmdl-mine-<平台>-<歌单id>`，不参与每日轮转清理）。\n\nv1.2.9 起，插件通过 manifest `longRunning` 声明 `runDailyJob`（240s）与 `playlistSongs`（60s）的长耗时预算（需后端 ≥ 1.7.39），配合后端**异步任务通道**，**一次「手动刷新」即可全量同步**全部私人歌单（约 1~2 分钟），不再受沙箱 15s 配额限制需分批多次触发；进度持久化游标仍保留（防中断续传）。歌单内歌曲刷新策略：优先匹配本地曲库（含本地曲库池 O(1) 匹配），未命中的写入外部占位条目，由后端在 upsert 后自动触发的后台 auto-match（主进程、不受 15s 限制）继续补全为可播条目。手动刷新：`POST /rest/api/v1/recommend/refresh` 传 `{\"pluginId\":\"go-music-dl\"}`（异步启动，前端轮询 `GET /rest/api/v1/plugins/go-music-dl/job` 查进度）。\n\n### 健康自检\n实现了可选  钩子：检查 baseUrl 是否配置并探测服务可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s）。",
+    documentation: "### 功能介绍\n全网音乐源聚合插件（go-music-dl 三合一）：在线搜索、每日推荐歌单、远程歌单拉取、音频流播放，并为在线歌曲提供 LRC 歌词与封面。源 / 歌词 / 封面三项能力合并为单个插件，共用一份服务地址配置。\n\n### 处理逻辑\n1. 核心按能力遍历启用插件：搜索走 `search`、每日推荐走 `recommend`、远程歌单走 `playlistSongs`、播放走 `stream`（`streamUrl` 构造可播地址）、歌词走 `lyricProvider`、封面走 `coverProvider`；\n2. 所有能力基于 `host.config` 里的 baseUrl 指向局域网部署的 go-music-dl 服务，由该服务完成各平台（QQ / 网易 / 酷狗 / 咪咕等）的聚合抓取与解密；\n3. 在线歌曲的过期清理（`webRotation` 能力）由核心定时器调度，按保留天数回收不再被引用的 web 歌曲与封面。\n\n### 音质预探(inspectSong)\n`inspectSong(config, song)` 向服务的 `/music/inspect` 发起一次轻量探测(仅 Range: bytes=0-1,不下载整首),返回 { valid, url, bytes, bitrateKbps }:bytes 由服务端返回的真实体积(如 2.0 MB)换算,bitrateKbps 为真实码率(如 128 kbps);取不到可播地址时返回 { valid: false },网络失败 / 非 200 / JSON 解析失败等任何异常一律返回 null(调用方优雅降级;本方法非 capability,不新增能力声明)。\n\n### 沙箱说明\n本插件运行在 QuickJS 虚拟机内(方案 B 沙箱):代码拿不到 Node 的任何能力,网络只能通过 `host.http`(自带超时),配置经 `host.config` 实时读取;`permissions` 声明了 `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`。\n\n## 配置\n- `baseUrl`（必填）：go-music-dl 网页服务地址，如 `http://192.168.1.10:18080`；\n- `sources`：搜索平台多选（默认全部）；\n- `webSongsMode` / `webSongsRetentionDays`：web 歌曲保留策略与清理天数；\n- `homeCount`：首页「平台精选」每个平台展示的歌单数（1~50，默认 6，所有平台相同）；\n- 启用后可在插件页「测试连接」验证服务可达。\n\n### 我的私人歌单（路径 B：持久、不轮转）\n配置 `username` / `password`（go-music-dl 网页后台登录凭据）并开启 `同步我的私人歌单` 后，插件会**每日自动登录**，把各平台「我的歌单」（仅网易云 / QQ / 酷狗 / 汽水，酷我 / 咪咕不支持）作为**持久本地歌单**同步（固定 id `pl-gmdl-mine-<平台>-<歌单id>`，不参与每日轮转清理）。\n\nv1.2.9 起，插件通过 manifest `longRunning` 声明 `runDailyJob`（240s）与 `playlistSongs`（60s）的长耗时预算（需后端 ≥ 1.7.39），配合后端**异步任务通道**，**一次「手动刷新」即可全量同步**全部私人歌单（约 1~2 分钟），不再受沙箱 15s 配额限制需分批多次触发；进度持久化游标仍保留（防中断续传）。歌单内歌曲刷新策略：优先匹配本地曲库（含本地曲库池 O(1) 匹配），未命中的写入外部占位条目，由后端在 upsert 后自动触发的后台 auto-match（主进程、不受 15s 限制）继续补全为可播条目。手动刷新：`POST /rest/api/v1/recommend/refresh` 传 `{\"pluginId\":\"go-music-dl\"}`（异步启动，前端轮询 `GET /rest/api/v1/plugins/go-music-dl/job` 查进度）。\n\n### 健康自检\n实现了可选  钩子：检查 baseUrl 是否配置并探测服务可达性。插件管理页的「健康检查」会对已实现自检的插件主动 ping（结果缓存 60s）。",
     i18n: {
   "en": {
     "name": "go-music-dl All-in-One (Aggregator)",
-    "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search (songs / playlists / albums) all take their platforms from the \"Search platforms\" setting (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox.",
+    "description": "An official all-in-one plugin: through a go-music-dl service deployed on your LAN it searches all-network music, fetches recommended playlists, streams playback, and provides LRC lyrics and covers for online songs. Search (songs / playlists / albums) all take their platforms from the \"Search platforms\" setting (caller-specified → config sources → fast domestic defaults, domestic-first up to 5 platforms). After configuring backend username/password, the plugin logs in automatically every day and syncs each platform \"My Playlists\" (Netease / QQ / Kugou / Soda) as persistent playlists to the local library (never rotated, never cleaned; via manifest.longRunning + the main project 1.7.47 soft watchdog, batch jobs have no wall-clock limit — unlimited playlists/covers/lyrics run in one pass, with windowed parallel fetching for speed (3-way concurrency; paired with the main project 1.7.48 batch job rate limit, CPU usage stays smooth); playlists carry a platform label and the frontend shows the matching platform badge). Also supports automatic import from keyword search: once keywords are configured, it searches matching playlists across all platforms daily and imports them (already-imported ones are skipped automatically). Runs in the QuickJS sandbox. It also provides inspectSong, an audio-quality probe: a single lightweight Range request (never downloading the whole track) that returns the song's real size and real bitrate; it returns valid=false when no playable URL is available and always returns null on any error (callers degrade gracefully).",
     "platformLabels": {
       "netease": "Netease Cloud Music",
       "qq": "QQ Music",
@@ -294,7 +294,7 @@ globalThis.__mfPlugin = { manifest: {
         "help": "Off (default): this plugin's scheduled/batch jobs always run serially in the global queue; On: allowed to run in parallel with other plugins that enable this switch (uses more CPU but is faster)."
       }
     },
-    "documentation": "### Features\nAn all-in-one music source aggregator (go-music-dl): online search, daily recommended playlists, remote playlist fetching, audio streaming, plus LRC lyrics and cover art for online songs. Source / lyrics / cover are merged into a single plugin sharing one service address config.\n\n### How it works\n1. The core walks enabled plugins by capability: search via `search`, daily recommendations via `recommend`, remote playlists via `playlistSongs`, playback via `stream` (builds a playable URL from `streamUrl`), lyrics via `lyricProvider`, covers via `coverProvider`;\n2. Every capability uses `host.config.baseUrl` to point at the go-music-dl service deployed on your LAN, which does the aggregated fetching and decryption for all platforms (QQ / Netease / Kugou / Migu and more);\n3. Expired online-song cleanup (`webRotation` capability) is scheduled by the core timer, reclaiming web songs and covers no longer referenced beyond the retention days.\n\n### Sandbox notes\nThis plugin runs inside the QuickJS VM (sandbox plan B): the code cannot reach any Node capability, networking goes only through `host.http` (with built-in timeout), and config is read live via `host.config`; `permissions` declares `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`.\n\n## Configuration\n- `baseUrl` (required): the go-music-dl web service address, e.g. `http://192.168.1.10:18080`;\n- `sources`: search platforms (multi-select, all by default);\n- `webSongsMode` / `webSongsRetentionDays`: web-song retention policy and cleanup days;\n- `homeCount`: playlists shown per platform in the \"Platform Picks\" section on the home page (1~50, default 6, same for all platforms);\n- After enabling, use \"Test connection\" on the plugin page to verify the service is reachable.\n\n### My private playlists (path B: persistent, never rotated)\nAfter configuring `username` / `password` (go-music-dl web backend login credentials) and enabling `Sync my private playlists`, the plugin logs in automatically every day and syncs each platform's \"My Playlists\" (only Netease / QQ / Kugou / Soda; Kuwo / Migu are not supported) as persistent local playlists (fixed ids `pl-gmdl-mine-<platform>-<playlist-id>`, excluded from the daily rotation cleanup).\n\nSince v1.2.9 the plugin declares long-running budgets via manifest `longRunning` (`runDailyJob` 240s and `playlistSongs` 60s; requires backend >= 1.7.39). Combined with the backend async task channel, a single \"manual refresh\" syncs all private playlists in full (about 1~2 minutes) — no longer limited by the sandbox 15s quota that forced multiple batched triggers; the persisted progress cursor is kept (resumable after interruption). Track refresh strategy: match the local library first (including the O(1) local library pool), write external placeholders for misses, and let the backend's background auto-match (main process, not limited by 15s) triggered after upsert continue completing them into playable entries. Manual refresh: `POST /rest/api/v1/recommend/refresh` with `{\"pluginId\":\"go-music-dl\"}` (starts asynchronously; poll `GET /rest/api/v1/plugins/go-music-dl/job` for progress).\n\n### Health check\nImplements the optional `health()` hook: checks whether baseUrl is configured and probes service reachability. The plugin management page's \"Health check\" actively pings plugins that implement self-checks (results cached for 60s)."
+    "documentation": "### Features\nAn all-in-one music source aggregator (go-music-dl): online search, daily recommended playlists, remote playlist fetching, audio streaming, plus LRC lyrics and cover art for online songs. Source / lyrics / cover are merged into a single plugin sharing one service address config.\n\n### How it works\n1. The core walks enabled plugins by capability: search via `search`, daily recommendations via `recommend`, remote playlists via `playlistSongs`, playback via `stream` (builds a playable URL from `streamUrl`), lyrics via `lyricProvider`, covers via `coverProvider`;\n2. Every capability uses `host.config.baseUrl` to point at the go-music-dl service deployed on your LAN, which does the aggregated fetching and decryption for all platforms (QQ / Netease / Kugou / Migu and more);\n3. Expired online-song cleanup (`webRotation` capability) is scheduled by the core timer, reclaiming web songs and covers no longer referenced beyond the retention days.\n\n### Audio quality probe (inspectSong)\n`inspectSong(config, song)` performs a lightweight probe against the service's `/music/inspect` (a single `Range: bytes=0-1` request, never downloading the whole track). It returns `{ valid, url, bytes, bitrateKbps }` where `bytes` is derived from the server-reported real size (e.g. 2.0 MB) and `bitrateKbps` is the real bitrate (e.g. 128 kbps); it returns `{ valid: false }` when no playable URL is available, and always returns `null` on any error (network failure / non-200 / JSON parse failure) so callers degrade gracefully. Not a capability — no capability declaration is added.\n\n### Sandbox notes\nThis plugin runs inside the QuickJS VM (sandbox plan B): the code cannot reach any Node capability, networking goes only through `host.http` (with built-in timeout), and config is read live via `host.config`; `permissions` declares `net` / `storage` / `songs:read` / `songs:write` / `playlists:write`.\n\n## Configuration\n- `baseUrl` (required): the go-music-dl web service address, e.g. `http://192.168.1.10:18080`;\n- `sources`: search platforms (multi-select, all by default);\n- `webSongsMode` / `webSongsRetentionDays`: web-song retention policy and cleanup days;\n- `homeCount`: playlists shown per platform in the \"Platform Picks\" section on the home page (1~50, default 6, same for all platforms);\n- After enabling, use \"Test connection\" on the plugin page to verify the service is reachable.\n\n### My private playlists (path B: persistent, never rotated)\nAfter configuring `username` / `password` (go-music-dl web backend login credentials) and enabling `Sync my private playlists`, the plugin logs in automatically every day and syncs each platform's \"My Playlists\" (only Netease / QQ / Kugou / Soda; Kuwo / Migu are not supported) as persistent local playlists (fixed ids `pl-gmdl-mine-<platform>-<playlist-id>`, excluded from the daily rotation cleanup).\n\nSince v1.2.9 the plugin declares long-running budgets via manifest `longRunning` (`runDailyJob` 240s and `playlistSongs` 60s; requires backend >= 1.7.39). Combined with the backend async task channel, a single \"manual refresh\" syncs all private playlists in full (about 1~2 minutes) — no longer limited by the sandbox 15s quota that forced multiple batched triggers; the persisted progress cursor is kept (resumable after interruption). Track refresh strategy: match the local library first (including the O(1) local library pool), write external placeholders for misses, and let the backend's background auto-match (main process, not limited by 15s) triggered after upsert continue completing them into playable entries. Manual refresh: `POST /rest/api/v1/recommend/refresh` with `{\"pluginId\":\"go-music-dl\"}` (starts asynchronously; poll `GET /rest/api/v1/plugins/go-music-dl/job` for progress).\n\n### Health check\nImplements the optional `health()` hook: checks whether baseUrl is configured and probes service reachability. The plugin management page's \"Health check\" actively pings plugins that implement self-checks (results cached for 60s)."
   }
 },
   },
@@ -319,6 +319,39 @@ globalThis.__mfPlugin = { manifest: {
         throw new Error("HTTP " + (r.status == null ? "?" : r.status) + ": " + url + detail);
       }
       return r.body;
+    }
+
+    /** 解析 go-music-dl /music/inspect 的 size 文本(如 "2.0 MB")→ 字节数。
+     *  服务端 core.FormatSize 恒产出 "%.1f MB"(仅 1 位小数),故精度止于 0.1MB;
+     *  这里仍兼容 KB/GB/B 以增强健壮性。解析不到(含 "-"/空/非法)返回 null。
+     *  纯函数、无副作用,同时暴露于 impl 供 tests/ 离线断言。 */
+    function parseSizeToBytes(input) {
+      if (input == null) return null;
+      const s = String(input).trim();
+      if (!s || s === "-") return null;
+      const m = /^([0-9]+(?:\.[0-9]+)?)\s*(B|KB|MB|GB|TB)$/i.exec(s);
+      if (!m) return null;
+      const n = parseFloat(m[1]);
+      if (!isFinite(n) || n < 0) return null;
+      const unit = m[2].toUpperCase();
+      const mul =
+        unit === "B" ? 1 :
+        unit === "KB" ? 1024 :
+        unit === "MB" ? 1024 * 1024 :
+        unit === "GB" ? 1024 * 1024 * 1024 :
+        1024 * 1024 * 1024 * 1024; // TB
+      return Math.round(n * mul);
+    }
+
+    /** 解析 go-music-dl /music/inspect 的 bitrate 文本(如 "128 kbps" / "-")→ 数字 kbps。
+     *  解析不到(含 "-"/空/非正)返回 null。纯函数、无副作用,同时暴露于 impl 供测试。 */
+    function parseBitrateKbps(input) {
+      if (input == null) return null;
+      const m = /([0-9]+(?:\.[0-9]+)?)\s*kbps/i.exec(String(input));
+      if (!m) return null;
+      const n = parseFloat(m[1]);
+      if (!isFinite(n) || n <= 0) return null;
+      return Math.round(n);
     }
 
     /** 有界缓存通用包装器:达到上限后自动清空,防止内存无限增长。
@@ -1143,6 +1176,49 @@ globalThis.__mfPlugin = { manifest: {
         if (range) qs.set("range", range);
         return baseOf(config) + "/music/download?" + qs.toString();
       },
+
+      /**
+       * 音质预探:向 go-music-dl 服务的 /music/inspect 要「真实体积 + 真实码率」。
+       * 语义:只探测,不下载整首;失败一律返回 null(调用方会优雅降级)。
+       * 非 capability —— 不写入 manifest.capabilities,由宿主/上层按需调用。
+       * @param config 插件配置(含 baseUrl);source 路径收到 config(与 streamUrl 一致)。
+       * @param song   { id, source, name?, artist?, album?, duration?, extra? }
+       * @returns {Promise<{valid:boolean, bytes?:number, bitrateKbps?:number, url?:string} | null>}
+       */
+      async inspectSong(config, song) {
+        try {
+          if (!song || song.id == null || !song.source) return { valid: false };
+          const base = baseOf(config);
+          if (!base) return null;
+          const qs = new URLSearchParams({
+            id: String(song.id),
+            source: String(song.source),
+          });
+          // duration 必带(缺失/0 也要传):服务端用 (字节数*8)/duration/1000 算真实码率;
+          // duration<=0 时服务端 bitrate 返回 "-",本方法按解析不到处理(省略该键)。
+          qs.set("duration", String(song.duration != null ? song.duration : 0));
+          // extra 部分平台(如 QQ/咪咕)取地址所必需,有则原样透传 JSON。
+          if (song.extra) qs.set("extra", JSON.stringify(song.extra));
+          const r = await host.http(base + "/music/inspect?" + qs.toString(), { method: "GET", timeout: 8000 });
+          if (!r || !r.ok) return null; // 网络失败 / 非 200 → 优雅降级(null,不抛)
+          let data;
+          try { data = JSON.parse(r.body); } catch { return null; } // JSON 解析失败 → null
+          if (!data || data.valid !== true || !data.url) return { valid: false };
+          const out = { valid: true, url: String(data.url) };
+          // bytes / bitrateKbps 解析不到就省略该键(绝不编造 0)。
+          const bytes = parseSizeToBytes(data.size);
+          if (bytes != null) out.bytes = bytes;
+          const kbps = parseBitrateKbps(data.bitrate);
+          if (kbps != null) out.bitrateKbps = kbps;
+          return out;
+        } catch {
+          return null; // 任何异常都不外抛:此方法在批量取链热路径上,抛出会拖挂整首歌
+        }
+      },
+
+      // 纯解析函数(无副作用、无网络):暴露于 impl 以便 tests/ 离线断言。
+      parseSizeToBytes,
+      parseBitrateKbps,
 
       // ---- lyricProvider ----
       async searchLyrics(song) {

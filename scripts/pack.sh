@@ -37,7 +37,19 @@ pack_one() {
   [ -f "$dir/package.json" ] && files+=(package.json)
 
   rm -f "$OUT/$id.tar.gz"
-  tar "${TAR_OPTS[@]}" -czf "dist/$id.tar.gz" -C "$dir" "${files[@]}"
+  # lx-source 音源脚本随包分发：插件 fs 根是 data/plugins/<id>/files/，市场重装会
+  # 重建 files/ —— tarball 自带 files/lx-sources/ 才能「重装后安装即用」（2026-10-10
+  # 实测 v1.2.1 重装把 files/lx-sources 清空，全部音源失联）。
+  if [ -d "$dir/lx-sources" ]; then
+    local stage
+    stage="$(mktemp -d)"
+    mkdir -p "$stage/files"
+    cp -r "$dir/lx-sources" "$stage/files/lx-sources"
+    tar "${TAR_OPTS[@]}" -czf "dist/$id.tar.gz" -C "$dir" "${files[@]}" -C "$stage" files
+    rm -rf "$stage"
+  else
+    tar "${TAR_OPTS[@]}" -czf "dist/$id.tar.gz" -C "$dir" "${files[@]}"
+  fi
 
   echo "打包完成: dist/$id.tar.gz  (v$version)"
   echo "  建议 Release tag: $id-v$version"

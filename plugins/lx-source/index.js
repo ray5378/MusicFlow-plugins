@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.2.1",
+    version: "1.2.2",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -60,7 +60,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.1/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.2/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",

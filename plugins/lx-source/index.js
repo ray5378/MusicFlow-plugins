@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.2.0",
+    version: "1.2.1",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -60,7 +60,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.0/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.1/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -68,16 +68,12 @@ globalThis.__mfPlugin = {
         type: "text-list",
         // v1.2.0 起内置 10 个实测可用音源（安装即用）；列表可增删改，文件在 lx-sources/ 下。
         default: [
-          "sixyin=sixyin/latest.js",
           "changqing=changqing/latest.js",
           "huibq=huibq/latest.js",
           "ikun=ikun/latest.js",
           "qdy=qdy/latest.js",
           "juhe=juhe/latest.js",
-          "huanyin=huanyin/latest.js",
-          "flower=flower/latest.js",
-          "grass=grass/latest.js",
-          "lx=lx/latest.js"
+          "huanyin=huanyin/latest.js"
         ],
         required: true,
         help:

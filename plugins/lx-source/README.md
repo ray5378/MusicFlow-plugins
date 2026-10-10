@@ -1,6 +1,8 @@
 # lx-source (v1.2.0, pure stream resolver)
 
-> **v1.2.0**: 内置 10 个实测可用音源脚本（lx-sources/，安装即用，默认全启用）；
+> **v1.2.1**: 默认列表收敛为 6 个实测可注册音源（sixyin/flower/grass/lx 在沙箱内无法注册源，已移出默认；脚本保留可手动启用）
+>
+> **v1.2.0**: 内置音源脚本（lx-sources/，安装即用）；
 > 音质默认 320k + flac + flac24bit。音源脚本版权归原作者，请自行评估使用风险。
 
 Inlines LX Music source scripts into the MusicFlow QuickJS sandbox and

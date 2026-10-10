@@ -1,4 +1,7 @@
-# lx-source (v1.1.4, pure stream resolver)
+# lx-source (v1.2.0, pure stream resolver)
+
+> **v1.2.0**: 内置 10 个实测可用音源脚本（lx-sources/，安装即用，默认全启用）；
+> 音质默认 320k + flac + flac24bit。音源脚本版权归原作者，请自行评估使用风险。
 
 Inlines LX Music source scripts into the MusicFlow QuickJS sandbox and
 resolves playable URLs **by the song's platform ID** via the LX musicUrl

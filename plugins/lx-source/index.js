@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.1.4",
+    version: "1.2.0",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -60,13 +60,25 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.1.4/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.0/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
         label: "音源列表",
         type: "text-list",
-        default: [],
+        // v1.2.0 起内置 10 个实测可用音源（安装即用）；列表可增删改，文件在 lx-sources/ 下。
+        default: [
+          "sixyin=sixyin/latest.js",
+          "changqing=changqing/latest.js",
+          "huibq=huibq/latest.js",
+          "ikun=ikun/latest.js",
+          "qdy=qdy/latest.js",
+          "juhe=juhe/latest.js",
+          "huanyin=huanyin/latest.js",
+          "flower=flower/latest.js",
+          "grass=grass/latest.js",
+          "lx=lx/latest.js"
+        ],
         required: true,
         help:
           "一行一个洛雪音源(点 + 添加行、✕ 删除行),每行支持三种写法:\n" +
@@ -92,7 +104,7 @@ globalThis.__mfPlugin = {
           { value: "flac", label: "无损 flac" },
           { value: "flac24bit", label: "Hi-Res flac24bit" },
         ],
-        default: ["320k"],
+        default: ["320k", "flac", "flac24bit"],
         help: "取播放链接时请求的音质档(洛雪标准档位);音源不支持该档时会明确报错并自动回退下一音源",
       },
       {

@@ -1274,7 +1274,7 @@ globalThis.__mfPlugin = { manifest: {
                   if (t) return { lrc: t };
                 } catch { /* 试下一首 */ }
               }
-            } catch { /* 该查询失败,试下一个 */ }
+            } catch (e) { host.log("searchLyrics 查询失败(" + query + "): " + (e && e.message ? e.message : e)); }
           }
         }
         return null;
@@ -1304,8 +1304,10 @@ globalThis.__mfPlugin = { manifest: {
           for (const card of parseSongCards(html)) {
             if (card.cover) return { url: card.cover };
           }
-        } catch {
-          /* ignore — 另一 provider 可能提供封面 */
+        } catch (e) {
+          // 观测补强(2026-10-11):瞬时故障(DNS 风暴/超时)不再静默——主仓侧修复队列
+          // 依赖退避重试,这里只记日志、仍返回 null 让其它 provider 接力。
+          host.log("searchCover 搜索失败: " + (e && e.message ? e.message : e));
         }
         return null;
       },

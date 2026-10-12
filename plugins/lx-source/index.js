@@ -1,5 +1,5 @@
 // ============================================================================
-//  MusicFlow 外置插件：洛雪(lx)音源内联运行时(纯取链)  v1.1.4(manifest 同步)
+//  MusicFlow 外置插件：洛雪(lx)音源内联运行时(纯取链)  v1.2.3(manifest 同步)
 // ----------------------------------------------------------------------------
 //  能力：把你自己的洛雪音乐(LX Music)音源 .js 直接放进 MusicFlow 沙箱执行，
 //        按歌曲平台 ID 直查洛雪 musicUrl 换播放直链(多音源自动轮切)。
@@ -33,7 +33,7 @@ globalThis.__mfPlugin = {
   manifest: {
     id: "lx-source",
     name: "洛雪音源",
-    version: "1.2.2",
+    version: "1.2.3",
     type: "source",
     description:
       "洛雪(LX Music)音源内联运行时(纯取链):把你自己的洛雪音源 .js 直接放进 MusicFlow 沙箱执行," +
@@ -60,7 +60,7 @@ globalThis.__mfPlugin = {
     permissions: ["net", "fs", "log", "jsenv", "crypto"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.2/lx-source.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/lx-source-v1.2.3/lx-source.tar.gz",
     configSchema: [
       {
         key: "sources",
@@ -387,7 +387,27 @@ globalThis.__mfPlugin = {
     }
 
     // ---------------- 音源加载(每源一个 jsenv 子环境) ----------------
-    const cache = {};
+    const cache = {};        // ck -> 已完成的加载结果(ready 长期有效)
+    const inflight = {};     // ck -> 在途加载 Promise(并发去重:同一源同一时刻只加载一次)
+    const envReady = {};     // envName -> 该指纹的沙箱环境已建好(命中即复用,不再 destroy+create)
+    const envOfIdx = {};     // idx -> 当前有效的 envName(换脚本时销毁该 idx 的旧环境)
+    const negUntil = {};     // ck -> 负结果的重试时刻(避免坏源被永久缓存,或被每次取链反复重载)
+    const loggedSig = {};    // 同一 (源,指纹) 的日志只记一次,避免并发重复加载把日志刷爆
+
+    // v1.2.3 修复「已加载但未注册任何源」刷屏:
+    // 旧实现里 readySources() 的并发调用全部 cache miss(ck 只在 loadOne 完成后才写入),
+    // 每个并发调用都把 6 个源完整重跑;而 loadOne 又【无条件】destroy+create 同名环境
+    // ——同一源的 envName 只由 idx+目标指纹决定,并发加载算出同一个名字,后到者把先到者
+    // 正在探针的沙箱连根拔掉,先到者读到空状态 → 误报「未注册」。
+    // 240 实测:同一源 1 秒被加载 17 次,changqing 假失败 74/108、ikun 85/96、juhe 30/30。
+    // 现在四道防线:①在途去重 ②同指纹复用环境 ③负结果短 TTL 重试 ④告警按指纹节流。
+    const NEG_TTL_MS = 30000;
+
+    function logOnce(sig, msg) {
+      if (loggedSig[sig]) return;
+      loggedSig[sig] = 1;
+      log(msg);
+    }
 
     // ---- URL 音源的磁盘缓存:出网不稳时,下载成功的脚本固化下来,之后直接读盘 ----
     function cacheFileFor(target, dir) {
@@ -426,7 +446,76 @@ globalThis.__mfPlugin = {
       } catch (_) { /* 缓存失败不影响主流程 */ }
     }
 
-    async function loadOne(item, idx, timeoutOverride) {
+    // 建立(或重建)某指纹的沙箱环境。换脚本 → 新 envName,顺手销毁该 idx 的旧环境,避免泄漏。
+    async function createEnv(envName, code, idx) {
+      const prev = envOfIdx[idx];
+      if (prev && prev !== envName) {
+        try { await host.jsenv.destroy(prev); } catch (_) {}
+        delete envReady[prev];
+      }
+      try { await host.jsenv.destroy(envName); } catch (_) {}
+      await host.jsenv.create(envName, SHIM + "\n" + code);
+      envReady[envName] = true;
+      envOfIdx[idx] = envName;
+    }
+
+    // 探针必须【同步】返回字符串 —— 返回 Promise 时宿主 execute 的 resolvePromise+pumpJobs
+    // 取值链路实测不稳(QA harness 里直接取不到值)。最多 4 轮:每轮 execute 都会 drain 一次
+    // 网络 + pump 一轮 jobs,足以覆盖「注册要等网络回来」的脚本。宿主子环境已被回收时返回 null。
+    const PROBE_CODE = "(function(){try{return JSON.stringify({s:globalThis.__lxState.sources?Object.keys(globalThis.__lxState.sources):null," +
+      "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
+      "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
+
+    async function probeEnv(envName) {
+      let info = null;
+      const pT0 = Date.now();
+      for (let round = 0; round < 4; round++) {
+        // 这一轮只有副作用:让宿主 drain 网络 + pump jobs,下一轮再取值
+        // 单源已耗过 6s 就不再多轮:宿主 invoke 预算只有 20s,不能让一个源吃光
+        if (round > 0) {
+          if (Date.now() - pT0 > 6000) break;
+          try { await host.jsenv.execute(envName, "void 0;"); } catch (_) {}
+        }
+        let r = null;
+        try { r = await host.jsenv.execute(envName, PROBE_CODE); } catch (_) { return null; }
+        try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
+        if (info && info.s && info.s.length) break;
+      }
+      return info;
+    }
+
+    // 把探针结果写回 rec(「注册成功」/「注册无源」两条分支)
+    function fillRec(rec, info, envName) {
+      if (info && info.s && info.s.length) {
+        rec.state = "ready";
+        rec.sources = info.s;
+        rec.srcInfo = info.info || {};
+        rec.handlers = info.h || [];
+        rec.netHits = info.n || 0;
+        const acts = {};
+        info.s.forEach(function (sid) { ((rec.srcInfo[sid] || {}).actions || []).forEach(function (a) { acts[a] = 1; }); });
+        rec.actions = Object.keys(acts);
+        // 音源头 @version 常写成 "v1.2.0",无条件补 v 会显示成 vv1.2.0
+        const hver = String(rec.version || "");
+        logOnce("ok:" + envName, "音源注册成功: " + rec.name + " " + (/^v/i.test(hver) ? hver : "v" + (hver || "?")) + " 源=" + info.s.join(",") + " actions=" + (rec.actions.join(",") || "-"));
+        return;
+      }
+      rec.state = "ready_no_sources";
+      // 诊断需要:即使没注册上源,也要把探针带回的 handlers / net 计数留下来
+      // (handlers>0 说明脚本确实执行并挂上了 lx.on;net>0 说明沙箱网络桥已通)。
+      if (info) {
+        rec.handlers = info.h || [];
+        rec.netHits = info.n || 0;
+      }
+      // 探针内部错误(__lxState 缺失等)最有排错价值,放最前面,免得被 80 字符摘要截断
+      const base = "音源已加载但未注册任何源(" + rec.origin + ");常见原因:该源等待宿主下发运行期配置,或依赖浏览器环境";
+      rec.error = info && info.error ? "探针内部错误:" + String(info.error) + ";" + base : base;
+      // 同一指纹只记一次:并发/重复加载不再刷屏(完整明细仍可在「测试」结果里看到)
+      logOnce("nosrc:" + envName, rec.error + " handlers=" + ((rec.handlers && rec.handlers.length) || 0) + " net=" + (rec.netHits || 0));
+    }
+
+    // 真正的加载实现(下载/读盘 → 建环境 → 探针)。并发去重与结果缓存统一由 loadOne 负责。
+    async function loadSource(item, idx, timeoutOverride) {
       const dir = cfgStr("sourceDir", "lx-sources");
       const timeoutMs = (typeof timeoutOverride === "number" && timeoutOverride > 0)
         ? timeoutOverride
@@ -468,9 +557,11 @@ globalThis.__mfPlugin = {
       }
 
       const head = parseLxHeader(code);
-      // 完整指纹 = 目标 + 脚本内容长度 + 音源头版本:同一 idx 换了脚本(或同一 URL 内容变了)
-      // 必然得到新的 envName,从而落到全新的子环境上。
-      envName = "lx-source:" + idx + ":" + fingerprint([item.target, code.length, head.version]);
+      // 完整指纹 = 目标 + 脚本内容哈希 + 音源头版本:同一 idx 换了脚本(或同一 URL 内容变了)
+      // 必然得到新的 envName。v1.2.3 起用内容哈希替代旧的 code.length —— 同长度换脚本不会再
+      // 复用旧环境,「改了音源但测试结果还是上一次」的假阳性风险由此消除,「同指纹复用环境」
+      // 也才成为安全前提(否则只能靠每次无条件 destroy 兜底,而那正是并发互毁的来源)。
+      envName = "lx-source:" + idx + ":" + fingerprint([item.target, hashStr(code), head.version]);
       const rec = {
         idx: idx, envName: envName, cacheKey: ck, name: item.name || head.name || ("src" + idx),
         version: head.version, author: head.author, description: head.description,
@@ -479,83 +570,75 @@ globalThis.__mfPlugin = {
         sources: [], srcInfo: {}, actions: [], handlers: [], netHits: 0,
       };
 
+      let info = null;
       try {
-        // 无条件先销毁同名环境:宿主 jsenv.create 对已存在的同名环境是【直接返回、
-        // 不重跑 initCode】,不清掉的话改了音源列表还会复用旧子环境 —— 测试结果
-        // 就是上一次的(假阳性)。指纹 + 销毁双保险。destroy 对不存在的名字是空操作。
-        try { await host.jsenv.destroy(envName); } catch (_) {}
-        await host.jsenv.create(envName, SHIM + "\n" + code);
+        if (envReady[envName]) {
+          // 复用已建好的同指纹环境:不再 destroy+create —— 那正是「同名环境互毁」的根源
+          // (并发加载时后到者把先到者正在探针的沙箱拔掉 → 先到者读到空状态 → 误报未注册)。
+          // 宿主可能回收过子环境 → 探不到就重建一次。
+          info = await probeEnv(envName);
+          if (!info) {
+            delete envReady[envName];
+            await createEnv(envName, code, idx);
+            info = await probeEnv(envName);
+          }
+        } else {
+          await createEnv(envName, code, idx);
+          info = await probeEnv(envName);
+        }
       } catch (e) {
         const msg = String((e && e.message) || e);
         rec.state = "error";
         // 顶层抛错(如要求去官网下载新版)必须原样透出,不许注册成空音源
         rec.error = "音源脚本加载失败(执行阶段): " + origin + " -> " + msg;
         log(rec.error);
+        delete envReady[envName];
         try { await host.jsenv.destroy(envName); } catch (_) {}
         return rec;
       }
 
-      try {
-        // ⚠️ 时序关键:宿主 jsenv.create 里 evalCode 之后【不推进 jobs】,而 execute 是
-        //「先 drainNet → evalCode → 再 pump」。探针是 sync 取快照,单轮读到的是「泵之前」
-        // 的状态 —— 异步注册(await 之后才 lx.on/lx.send)的音源会被误判成
-        // 「已加载但未注册任何源」。
-        // 补救:连续最多 4 轮 execute。每轮 execute 都会 drain 一次网络 + pump 一轮 jobs,
-        // 第 N 轮的探针读到的是第 N-1 轮泵之后的状态,足以覆盖「注册要等网络回来」的脚本。
-        // 注意:探针必须保持【同步】返回字符串 —— 返回 Promise 时宿主 execute 的
-        // resolvePromise+pumpJobs 取值链路实测不稳(QA harness 里直接取不到值)。
-        const probe = "(function(){try{return JSON.stringify({s:globalThis.__lxState.sources?Object.keys(globalThis.__lxState.sources):null," +
-          "info:globalThis.__lxState.sources?Object.fromEntries(Object.entries(globalThis.__lxState.sources).map(function(kv){return [kv[0],{actions:(kv[1]&&kv[1].actions)||[],qualitys:(kv[1]&&kv[1].qualitys)||[]}]})):{}," +
-          "h:Object.keys(globalThis.__lxState.handlers),n:(globalThis.__lxState.net||[]).length});}catch(e){return JSON.stringify({s:null,error:String(e)})}})()";
-        let info = null;
-        const pT0 = Date.now();
-        for (let round = 0; round < 4; round++) {
-          // 这一轮只有副作用:让宿主 drain 网络 + pump jobs,下一轮再取值
-          // 单源已耗过 6s 就不再多轮:宿主 invoke 预算只有 20s,不能让一个源吃光
-          if (round > 0) {
-            if (Date.now() - pT0 > 6000) break;
-            try { await host.jsenv.execute(envName, "void 0;"); } catch (_) {}
-          }
-          const r = await host.jsenv.execute(envName, probe);
-          try { info = JSON.parse(r && r.result ? r.result : "null"); } catch (_) { info = null; }
-          if (info && info.s && info.s.length) break;
-        }
-        if (info && info.s && info.s.length) {
-          rec.state = "ready";
-          rec.sources = info.s;
-          rec.srcInfo = info.info || {};
-          rec.handlers = info.h || [];
-          rec.netHits = info.n || 0;
-          const acts = {};
-          info.s.forEach(function (sid) { ((rec.srcInfo[sid] || {}).actions || []).forEach(function (a) { acts[a] = 1; }); });
-          rec.actions = Object.keys(acts);
-          // 音源头 @version 常写成 "v1.2.0",无条件补 v 会显示成 vv1.2.0
-          const hver = String(rec.version || "");
-          log("音源注册成功: " + rec.name + " " + (/^v/i.test(hver) ? hver : "v" + (hver || "?")) + " 源=" + info.s.join(",") + " actions=" + (rec.actions.join(",") || "-"));
-        } else {
-          rec.state = "ready_no_sources";
-          // 诊断需要:即使没注册上源,也要把探针带回的 handlers / net 计数留下来
-          // (handlers>0 说明脚本确实执行并挂上了 lx.on;net>0 说明沙箱网络桥已通)。
-          if (info) {
-            rec.handlers = info.h || [];
-            rec.netHits = info.n || 0;
-          }
-          // 探针内部错误(__lxState 缺失等)最有排错价值,放最前面,免得被 80 字符摘要截断
-          const base = "音源已加载但未注册任何源(" + origin + ");常见原因:该源等待宿主下发运行期配置,或依赖浏览器环境";
-          rec.error = info && info.error ? "探针内部错误:" + String(info.error) + ";" + base : base;
-          log(rec.error + " handlers=" + ((rec.handlers && rec.handlers.length) || 0) + " net=" + (rec.netHits || 0));
-        }
-      } catch (e) {
+      if (info === null) {
+        // 环境被回收且重建后仍无返回:明确报错(否则会被当成「注册成功但 0 源」)
         rec.state = "error";
-        rec.error = "音源脚本加载失败(读取注册结果): " + origin + " -> " + String((e && e.message) || e);
+        rec.error = "音源脚本加载失败(读取注册结果): " + origin + " -> 沙箱无返回";
         log(rec.error);
+        return rec;
       }
-      // 同一 idx 换了脚本后旧 key 必须失效,否则 search/stream 会命中上一份 rec
-      Object.keys(cache).forEach(function (k) {
-        if (k !== ck && k.indexOf(idx + ":") === 0) delete cache[k];
-      });
-      cache[ck] = rec;
+      fillRec(rec, info, envName);
       return rec;
+    }
+
+    // 统一加载入口:同一音源的并发调用共享同一个在途 Promise(v1.2.3 修复并发重复加载);
+    // 已完成的 ready 结果长期命中;负结果按 NEG_TTL_MS 短 TTL 重试 —— 既不把坏源永久缓存
+    // (那会让该源再也不被重试),也不让每次取链都重载。force 只绕开「已完成结果」,
+    // 绝不绕开在途去重。
+    async function loadOne(item, idx, timeoutOverride, opts) {
+      const force = !!(opts && opts.force);
+      const ck = cacheKey(item, idx);
+      if (inflight[ck]) return inflight[ck];
+      if (!force) {
+        const hit = cache[ck];
+        if (hit && (!negUntil[ck] || negUntil[ck] > Date.now())) return hit;
+      }
+      const p = loadSource(item, idx, timeoutOverride).then(
+        function (rec) {
+          delete inflight[ck];
+          cache[ck] = rec;
+          if (rec && rec.state === "ready") delete negUntil[ck];
+          else negUntil[ck] = Date.now() + NEG_TTL_MS;
+          // 同一 idx 换了脚本后旧 key 必须失效,否则 search/stream 会命中上一份 rec
+          Object.keys(cache).forEach(function (k) {
+            if (k !== ck && k.indexOf(idx + ":") === 0) { delete cache[k]; delete negUntil[k]; }
+          });
+          return rec;
+        },
+        function (e) {
+          delete inflight[ck];
+          throw e;
+        }
+      );
+      inflight[ck] = p;
+      return p;
     }
 
     // 分批并发加载:不声明 longRunning 是因为 longRunning 会把方法路由到 worker 线程,
@@ -564,7 +647,7 @@ globalThis.__mfPlugin = {
     // 总预算:宿主主线程 invoke 预算 20s(sandbox.ts INVOKE_TIMEOUT_MS),留 5s 余量做汇总与返回。
     const LOAD_BUDGET_MS = 15000;
 
-    async function loadAll(items) {
+    async function loadAll(items, opts) {
       function mkErr(i, msg) {
         const it = items[i] || {};
         return { idx: i, name: it.name || "", version: "", origin: it.target || "",
@@ -583,7 +666,7 @@ globalThis.__mfPlugin = {
         const jobs = [];
         for (let i = base; i < end; i++) {
           jobs.push(
-            loadOne(items[i], i, perMs).then(
+            loadOne(items[i], i, perMs, opts).then(
               function (rec) { out[i] = rec || mkErr(i, "加载无返回"); },
               function (e) { out[i] = mkErr(i, "加载抛出异常: " + String((e && e.message) || e)); }
             )
@@ -606,8 +689,7 @@ globalThis.__mfPlugin = {
       const items = max > 0 ? all.slice(0, max) : all;
       const out = [];
       for (let i = 0; i < items.length; i++) {
-        const key = cacheKey(items[i], i);
-        const rec = cache[key] && cache[key].state !== "loading" ? cache[key] : await loadOne(items[i], i);
+        const rec = await loadOne(items[i], i);
         if (rec.state === "ready") out.push(rec);
       }
       const pref = cfgArr("sourcePreference");
@@ -838,7 +920,9 @@ globalThis.__mfPlugin = {
 
           const okList = [];
           const badList = [];
-          const all = await loadAll(items);
+          // 显式测试:force 绕开「已完成结果」做一次真实重检(仍共享在途去重)。
+          // health() 走非 force —— 那是周期自检,复用缓存即可,不再每次全量重载。
+          const all = await loadAll(items, { force: true });
           for (let i = 0; i < all.length; i++) {
             const rec = all[i];
             if (rec.state === "ready") okList.push({ no: i + 1, rec: rec });

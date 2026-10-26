@@ -15,10 +15,20 @@
 //    - 权限:只有 manifest.permissions 声明的能力(此处 net)可用。
 // ============================================================================
 
+// 「关闭首页推荐」哨兵值:configSchema 里「首页推荐平台」(recommendPlatforms)下拉的第一项。
+// 与任何真实平台 id 都不冲突;勾选后本插件退出首页「平台精选」(见 recommend())。
+const RECOMMEND_OFF = "__off__";
+/** 仅当配置数组显式含 RECOMMEND_OFF 才算关闭;
+ *  未配置 / 空数组 / 非数组一律视为「未关闭」(保持历史语义:不过滤 = 全平台)。 */
+function isRecommendOff(config) {
+  const v = config && config.recommendPlatforms;
+  return Array.isArray(v) && v.indexOf(RECOMMEND_OFF) !== -1;
+}
+
 globalThis.__mfPlugin = { manifest: {
     id: "go-music-dl",
     name: "go-music-dl 全网聚合",
-    version: "1.6.9",
+    version: "1.7.0",
     type: "source",
     schedules: true,
     description:
@@ -58,7 +68,7 @@ globalThis.__mfPlugin = { manifest: {
     permissions: ["net", "storage", "songs:read", "songs:write", "playlists:read", "playlists:write"],
     author: "ray5378",
     homepage: "https://github.com/ray5378/MusicFlow-plugins",
-    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.6.9/go-music-dl.tar.gz",
+    downloadUrl: "https://github.com/ray5378/MusicFlow-plugins/releases/download/go-music-dl-v1.7.0/go-music-dl.tar.gz",
     configSchema: [
       { key: "baseUrl", label: "服务地址", group: "backend", type: "url", required: true, help: "填写你在局域网部署的 go-music-dl 网页服务地址(源 / 歌词 / 封面共用)" },
       { key: "username", label: "登录用户名", group: "backend", type: "text", help: "go-music-dl 网页后台登录用户名。留空则不登录,仅拉公开推荐歌单;填写后插件会登录并同步各平台「我的歌单」" },
@@ -83,7 +93,8 @@ globalThis.__mfPlugin = { manifest: {
         { label: "定期清理", value: "rotate" },
       ] },
       { key: "webSongsRetentionDays", label: "保留天数", group: "backend", type: "number", help: "超过该天数且不再被任何歌单/收藏引用的在线歌曲会被自动清理(含封面);仍在歌单或收藏中的不受影响。保留 0 天 = 下架即清。" },
-      { key: "recommendPlatforms", label: "首页推荐平台", group: "recommend", type: "multiselect", help: "选择在首页「平台精选」中显示哪些平台的歌单,未选中的平台不会出现在首页。默认全选。", options: [
+      { key: "recommendPlatforms", label: "首页推荐平台", group: "recommend", type: "multiselect", help: "选择在首页「平台精选」中显示哪些平台的歌单,未选中的平台不会出现在首页。一项都不选 = 显示全部平台。**勾选第一项「关闭首页推荐」即让本插件完全不参与首页推荐**(不再请求上游服务,首页不再出现本插件的推荐分区);该项优先级最高,勾了它其它平台勾选项都不再生效。", options: [
+        { value: "__off__", label: "关闭首页推荐" },
         { value: "netease", label: "网易云" },
         { value: "qq", label: "QQ 音乐" },
         { value: "kugou", label: "酷狗" },
@@ -205,8 +216,9 @@ globalThis.__mfPlugin = { manifest: {
       },
       "recommendPlatforms": {
         "label": "Home recommend platforms",
-        "help": "Choose which platform playlists appear in the \"Platform Picks\" section on the home page; unselected platforms will not appear. All selected by default.",
+        "help": "Choose which platform playlists appear in the \"Platform Picks\" section on the home page; unselected platforms will not appear. Selecting nothing shows all platforms. The first option, \"Disable home recommendations\", takes the plugin out of the home page entirely (no upstream request is made) and overrides any platform selection.",
         "options": {
+          "__off__": "Disable home recommendations",
           "netease": "Netease Cloud Music",
           "qq": "QQ Music",
           "kugou": "Kugou",
@@ -1047,6 +1059,10 @@ globalThis.__mfPlugin = { manifest: {
       },
 
       async recommend(config) {
+        // 「关闭首页推荐」(首页推荐平台下拉第一项):勾选后本插件完全退出首页
+        // 「平台精选」—— 不发上游请求、不读写快照缓存,直接返回空频道。
+        // 未配置 / 空数组保持历史语义(不过滤 = 全平台)。
+        if (isRecommendOff(config)) return { channels: [] };
         // ================== 首页「平台精选」数据来源 ==================
         // 统一全平台走上游 go-music-dl /music/recommend(公开精选/榜单渠道)。
         // 说明:上游只有网易云每次返回个性化新歌单(自动刷新);QQ/酷狗/酷我等平台

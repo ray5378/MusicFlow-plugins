@@ -41,6 +41,7 @@ const KNOWN_PERMISSIONS = [
   "log", "storage", "net", "crypto", "command", "fs", "fs:music", "fs:external",
   "websocket", "jsenv",
   "songs:read", "songs:write", "playlists:read", "playlists:write", "inter-plugin",
+  "notify",
 ];
 
 // 能力 → impl 必须提供的方法(方法名取自核心的真实调用点)。

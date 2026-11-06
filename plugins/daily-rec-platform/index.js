@@ -724,6 +724,18 @@ function UpstreamClient(host, crypto) {
 
 function CredentialStore(host) {
   var KEY = function (plat) { return "cred:" + plat; };
+  // 凭据过期提醒的稳定 key(核心按 plugin_notices 的 (plugin_id,key) 去重)。
+  var NOTICE_KEY = function (plat) { return "cookie-expired:" + plat; };
+  // 老核心可能尚未实现 host.notify(notify 权限):此时静默跳过,不影响日推主流程。
+  var notifyApi = function () {
+    return host && host.notify && typeof host.notify.upsert === "function" ? host.notify : null;
+  };
+  var clearAlert = function (platform) {
+    var api = notifyApi();
+    if (!api || typeof api.clear !== "function") return Promise.resolve();
+    return Promise.resolve(api.clear(NOTICE_KEY(platform))).then(null, function () {});
+  };
+  this.clearAlert = clearAlert;
 
   this.get = function (platform) {
     return host.storage.get(KEY(platform)).then(function (v) { return v || null; });
@@ -731,11 +743,29 @@ function CredentialStore(host) {
 
   this.save = function (platform, cred) {
     cred.savedAt = Date.now();
-    return host.storage.set(KEY(platform), cred);
+    return host.storage.set(KEY(platform), cred).then(function () {
+      // 成功写入(首次绑定/静默刷新成功/重新扫码)即视为已恢复,清掉过期提醒。
+      return clearAlert(platform);
+    });
   };
 
   this.clear = function (platform) {
-    return host.storage.delete(KEY(platform));
+    return host.storage.delete(KEY(platform)).then(function () {
+      return clearAlert(platform);
+    });
+  };
+
+  /** 记录某平台凭据失效(host.notify,权限 notify),核心在重启后首个 Web 会话弹一次 toast。 */
+  this.alertExpired = function (platform, message) {
+    var api = notifyApi();
+    if (!api) return Promise.resolve();
+    var label = (PLATFORMS[platform] && PLATFORMS[platform].label) || platform;
+    return Promise.resolve(api.upsert({
+      key: NOTICE_KEY(platform),
+      level: "warning",
+      title: label + " 登录凭据已过期",
+      message: message || (label + " 登录凭据已过期,请在插件配置页重新扫码绑定"),
+    })).then(null, function () {});
   };
 
   this.fingerprint = function (cred) {
@@ -1688,7 +1718,7 @@ function DailySnapshot(host) {
 var MANIFEST = {
   id: "daily-rec-platform",
   name: "平台账号每日推荐",
-  version: "1.1.1",
+  version: "1.2.0",
   type: "recommender",
   description: "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
   capabilities: ["qrLogin", "search", "recommendPlaylist"],
@@ -2264,10 +2294,18 @@ globalThis.__mfPlugin = {
                     if (!g || !g.ok) {
                       authFailed++;
                       ctx.errorCode = g.code || "AUTH_UNKNOWN";
-                      lines.push(diag.render(diag.finish(ctx)) + " — " + (g.message || ""));
-                      return;
+                      // 凭据真失效(探针失败)才记告警:网络/风控等 AUTH_UNKNOWN 不弹,
+                      // 避免把临时不可用误报成「cookie 过期」。写入失败不挡主流程。
+                      var alertP = (g && g.code === "AUTH_EXPIRED")
+                        ? store.alertExpired(platform, g.message).then(null, function () {})
+                        : Promise.resolve();
+                      return alertP.then(function () {
+                        lines.push(diag.render(diag.finish(ctx)) + " — " + (g.message || ""));
+                      });
                     }
                     var useCred = g.cred || cred;
+                    // 探针已通过 → 若此前留过过期告警,顺手清掉,避免下次重启误弹。
+                    store.clearAlert(platform).then(null, function () {});
                     return fetchDaily(platform, useCred).then(function (rows) {
                       ctx.route = PLATFORMS[platform].routes.daily;
                       ctx.total = rows.length;

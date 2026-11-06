@@ -879,12 +879,22 @@ function SessionGuard(host, upstream, store) {
       var exp = Number(cred.expiresAt || 0);
       var ahead = PLATFORMS.qq.refreshAheadSec * 1000;
       var doRefresh = exp > 0 && exp - Date.now() < ahead;
-      var attempt = doRefresh ? refreshQQ(cred).then(function (r) { return { cred: r.cred || cred, refreshed: r.refreshed }; })
-        : Promise.resolve({ cred: cred, refreshed: false });
+      // 静默刷新是 best-effort:QQ 刷新通道走 ag-1 加密 + zzcSign,平台风控/签名
+      // 规则变化时会直接 403 或 500001(登录票据失效则是 500003)。这些都不代表
+      // 存量 cookie 失效 —— 刷新失败必须回落探针,由探针决定凭据真实有效性。
+      // (240 真机:2026-10-19 到期后每次刷新抛 403,整条 QQ 分支在探针前就中断,
+      //  日推长期停更,而 cookie 探针与日推链路其实一直可用。)
+      var attempt = doRefresh
+        ? refreshQQ(cred).then(function (r) { return { cred: r.cred || cred, refreshed: r.refreshed, refreshError: null }; },
+            function (e) { return { cred: cred, refreshed: false, refreshError: (e && (e.message || e.code)) || "refresh failed" }; })
+        : Promise.resolve({ cred: cred, refreshed: false, refreshError: null });
       return attempt.then(function (r) {
         return probeQQ(r.cred).then(function (p) {
-          if (p.ok) return { ok: true, cred: r.cred, refreshed: r.refreshed };
-          // 刷新失败不立即判死:返回 AUTH_EXPIRED 交上层诊断。
+          if (p.ok) {
+            if (r.refreshError) host.log("QQ 静默刷新失败(" + String(r.refreshError).slice(0, 120) + "),cookie 探针仍有效,继续使用");
+            return { ok: true, cred: r.cred, refreshed: r.refreshed };
+          }
+          // 探针失败才判死:返回 AUTH_EXPIRED 交上层诊断。
           return { ok: false, code: "AUTH_EXPIRED", message: "QQ 凭据已失效，请在插件配置页重新扫码绑定" };
         }, function (e) {
           return { ok: false, code: (e && e.code) || "AUTH_UNKNOWN", message: (e && e.message) || "鉴权未知" };
@@ -1678,7 +1688,7 @@ function DailySnapshot(host) {
 var MANIFEST = {
   id: "daily-rec-platform",
   name: "平台账号每日推荐",
-  version: "1.1.0",
+  version: "1.1.1",
   type: "recommender",
   description: "拉取网易云音乐、QQ 音乐与酷狗音乐的「每日推荐」，经库内严格匹配后产出每平台 2 张歌单（今日带日期 + 近 7 天历史滚动并集）。支持扫码登录绑定账号（网易云二维码 URL + QQ/酷狗官方二维码图），凭据只存宿主 host.storage、日志仅指纹。选源强制门禁：本地匹配(host.songs.match)未命中才走跨插件在线源补全（透传 album+duration），绝不自行拼接在线播放 URL。",
   capabilities: ["qrLogin", "search", "recommendPlaylist"],
